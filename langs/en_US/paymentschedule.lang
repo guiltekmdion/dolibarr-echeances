@@ -1,0 +1,42 @@
+# Translation file
+
+#
+# Generic
+#
+
+# Module label 'ModulePaymentScheduleName'
+ModulePaymentScheduleName = PaymentSchedule
+# Module description 'ModulePaymentScheduleDesc'
+ModulePaymentScheduleDesc = PaymentSchedule description
+
+#
+# Admin page
+#
+PaymentScheduleSetup = PaymentSchedule setup
+Settings = Settings
+PaymentScheduleSetupPage = PaymentSchedule setup page
+NewSection=New section
+PAYMENTSCHEDULE_MYPARAM1 = My param 1
+PAYMENTSCHEDULE_MYPARAM1Tooltip = My param 1 tooltip
+PAYMENTSCHEDULE_MYPARAM2=My param 2
+PAYMENTSCHEDULE_MYPARAM2Tooltip=My param 2 tooltip
+
+
+#
+# About page
+#
+About = About
+PaymentScheduleAbout = About PaymentSchedule
+PaymentScheduleAboutPage = PaymentSchedule about page
+
+#
+# Sample page
+#
+PaymentScheduleArea = Home PaymentSchedule
+MyPageName = My page name
+
+#
+# Sample widget
+#
+MyWidget = My widget
+MyWidgetDescription = My widget description
