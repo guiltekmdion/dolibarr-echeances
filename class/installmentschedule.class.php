@@ -1300,10 +1300,10 @@ class InstallmentSchedule
 			$this->error = $langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('PaymentMode'));
 			return -1;
 		}
-		if (isModEnabled('bank')) {	// An open account of the entity
-			require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
-			$account = new Account($this->db);
-			if ($accountid <= 0 || $account->fetch($accountid) <= 0 || (int) $account->status != Account::STATUS_OPEN || !in_array((int) $account->entity, array_map('intval', explode(',', getEntity('bank_account'))))) {
+		if (isModEnabled('bank')) {	// An open account of the entity, read in its table: Account::fetch() of Dolibarr 24.0.2 does not give the entity
+			$sql = "SELECT rowid FROM ".$this->db->prefix()."bank_account WHERE rowid = ".((int) $accountid)." AND clos = 0 AND entity IN (".getEntity('bank_account').")";
+			$resql = $this->db->query($sql);
+			if (!$resql || !$this->db->num_rows($resql)) {
 				$this->error = $langs->trans('ErrorFieldRequired', $langs->transnoentitiesnoconv('AccountToCredit'));
 				return -1;
 			}
