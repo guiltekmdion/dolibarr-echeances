@@ -1223,13 +1223,13 @@ class InstallmentSchedule
 				continue;
 			}
 			$paid = $this->allocate($invoice, $schedule->lines);
+			$before = (int) $invoice->mode_reglement_id;	// Read before the core sets it to direct debit at the first request
 			foreach ($schedule->lines as $line) {
 				$remain = round($line->amount - $paid[$line->id], $this->decimals);
-				if ($line->status != self::STATUS_OPEN || $line->date > $limit || $remain <= 0 || ($line->mode ?: (int) $invoice->mode_reglement_id) != $modeid || $this->debitExists($line->debitid)) {
+				if ($line->status != self::STATUS_OPEN || $line->date > $limit || $remain <= 0 || ($line->mode ?: $before) != $modeid || $this->debitExists($line->debitid)) {
 					continue;
 				}
 				$this->db->begin();	// The request and its installment together
-				$before = (int) $invoice->mode_reglement_id;
 				$result = $invoice->demande_prelevement($user, (float) $remain);
 				if ($result <= 0) {	// 0: a request of this invoice is pending
 					$this->db->rollback();
@@ -1373,7 +1373,7 @@ class InstallmentSchedule
 	 *
 	 * @param	User	$user		User
 	 * @param	int		$lineid		Installment
-	 * @param	int		$invoiceid	Invoice of the same customer, 0 to abandon the installment
+	 * @param	int		$invoiceid	Invoice made by hand to link, 0 to abandon the installment, -1 to unlink its invoice (to check again)
 	 * @return	int<-1,1>			1 if OK, -1 if error
 	 */
 	public function settle(User $user, $lineid, $invoiceid)
@@ -1386,7 +1386,7 @@ class InstallmentSchedule
 		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND l.rowid = ".((int) $lineid);
 		$resql = $this->db->query($sql);
 		$obj = ($resql ? $this->db->fetch_object($resql) : null);
-		if (!$obj || !$user->hasRight('installments', 'write') || !$obj->billing || !empty($obj->fk_facture)) {	// Installments to invoice only
+		if (!$obj || !$user->hasRight('installments', 'write') || !$obj->billing || ($invoiceid >= 0) == !empty($obj->fk_facture)) {	// Installments to invoice only; unlink: an invoiced one
 			$this->error = ($resql ? $langs->trans('InstallmentsErrorNotToInvoice') : $this->db->lasterror());
 			return -1;
 		}
@@ -1404,6 +1404,8 @@ class InstallmentSchedule
 				return -1;
 			}
 			$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_facture = ".((int) $invoiceid).", status = ".self::STATUS_OPEN." WHERE rowid = ".((int) $lineid);
+		} elseif ($invoiceid < 0) {	// A wrong invoice found by the import, for example: to check again, never invoiced by the job
+			$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_facture = NULL, status = ".self::STATUS_TOCHECK." WHERE rowid = ".((int) $lineid);
 		} else {
 			$sql = "UPDATE ".$this->db->prefix()."installments_line SET status = ".self::STATUS_ABANDONED." WHERE rowid = ".((int) $lineid)." AND fk_facture IS NULL";
 		}

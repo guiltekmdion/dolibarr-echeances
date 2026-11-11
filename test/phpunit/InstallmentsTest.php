@@ -234,6 +234,10 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertSame(array('23125501', '23125502'), array($module->rights[0][0], $module->rights[1][0]), 'Not the rights 231251 and 231252 of the module Reminders');
 		$this->assertSame(array(0, 0), array($module->cronjobs[0]['status'], $module->cronjobs[1]['status']));
 		$this->assertSame(array('INSTALLMENTS_START_DATE', 1), array($module->const[0][0], $module->const[0][6]), 'A module enabled again does not invoice the past');
+		$user = $this->savuser;
+		foreach ($module->tabs as $tab) {	// Their conditions go through dol_eval(), which refuses some functions (empty() hid all the tabs)
+			$this->assertTrue((bool) verifCond(explode(':', $tab)[4], '2'), $tab);
+		}
 		foreach (array('installments_schedule', 'installments_line') as $table) {
 			$this->assertTrue((bool) $db->query("SELECT rowid FROM ".$db->prefix().$table), 'Enabling the module creates its table '.$table.': '.$db->lasterror());
 		}
@@ -1109,6 +1113,7 @@ class InstallmentsTest extends CommonClassTest
 		$lines = array(array('date' => dol_time_plus_duree($today, 2, 'd'), 'amount' => 400.0, 'mode' => $pre, 'note' => ''), array('date' => dol_time_plus_duree($today, 3, 'd'), 'amount' => 400.0, 'mode' => 0, 'note' => ''),
 			array('date' => dol_time_plus_duree($today, 40, 'd'), 'amount' => 400.0, 'mode' => 0, 'note' => ''));
 		$this->assertGreaterThan(0, $installments->save($user, $invoice, $lines), $installments->error);
+		$this->savconf->global->WITHDRAW_STRICT_CHECK_AMOUNT = 1;	// Several requests in one run: the mode set by the core at the first one is not followed
 
 		$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
 		$schedule = $installments->fetch('facture', $invoice->id);
@@ -1166,6 +1171,10 @@ class InstallmentsTest extends CommonClassTest
 		$schedule = $installments->fetch('commande', $order->id);
 		$this->assertSame(array((int) $good->id, 0), array_column($schedule->lines, 'invoiceid'));
 		$this->assertSame(array(InstallmentSchedule::STATUS_OPEN, InstallmentSchedule::STATUS_ABANDONED), array_column($schedule->lines, 'status'));
+		$this->assertSame(-1, $installments->settle($user, $schedule->lines[1]->id, -1), 'Nothing to unlink');
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[0]->id, -1), 'Not this invoice');
+		$schedule = $installments->fetch('commande', $order->id);
+		$this->assertSame(array(0, InstallmentSchedule::STATUS_TOCHECK), array($schedule->lines[0]->invoiceid, $schedule->lines[0]->status), 'To check again, never invoiced by the job');
 	}
 
 	/**

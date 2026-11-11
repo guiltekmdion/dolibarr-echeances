@@ -180,9 +180,10 @@ if (empty($reshook) && $action == 'confirm_createinvoice' && $confirm == 'yes' &
 	header('Location: '.$self);
 	exit;
 }
-if (empty($reshook) && in_array($action, array('confirm_linkinvoice', 'confirm_abandon')) && $confirm == 'yes' && $permissiontowrite && $schedule
+if (empty($reshook) && in_array($action, array('confirm_linkinvoice', 'confirm_abandon', 'confirm_unlinkinvoice')) && $confirm == 'yes' && $permissiontowrite && $schedule
 	&& in_array($lineid, array_column($schedule->lines, 'id'))) {	// Only an installment of this document
-	if ($installments->settle($user, $lineid, ($action == 'confirm_linkinvoice' ? GETPOSTINT('invoiceid') : 0)) < 0) {	// Test on permission already done
+	$invoiceid = ($action == 'confirm_linkinvoice' ? GETPOSTINT('invoiceid') : ($action == 'confirm_unlinkinvoice' ? -1 : 0));
+	if ($installments->settle($user, $lineid, $invoiceid) < 0) {	// Test on permission already done
 		setEventMessages($installments->error, null, 'errors');
 	} else {
 		setEventMessages($langs->trans('RecordSaved'), null);
@@ -241,6 +242,9 @@ if ($current && $action == 'linkinvoice') {
 	}
 	$formquestion = array(array('type' => 'select', 'name' => 'invoiceid', 'label' => $langs->trans('Invoice'), 'values' => $invoices));
 	print $form->formconfirm($self.'&lineid='.$current->id, $langs->trans('InstallmentsLinkInvoice'), $langs->trans('InstallmentsConfirmLink', dol_print_date($current->date, 'day')), 'confirm_linkinvoice', $formquestion, 0, 1);
+}
+if ($current && $action == 'unlinkinvoice') {
+	print $form->formconfirm($self.'&lineid='.$current->id, $langs->trans('InstallmentsUnlinkInvoice'), $langs->trans('InstallmentsConfirmUnlink', dol_print_date($current->date, 'day')), 'confirm_unlinkinvoice', '', 0, 1);
 }
 if ($current && $action == 'abandon') {
 	print $form->formconfirm($self.'&lineid='.$current->id, $langs->trans('InstallmentsAbandon'), $langs->trans('InstallmentsConfirmAbandon', dol_print_date($current->date, 'day')), 'confirm_abandon', '', 0, 1);
@@ -372,6 +376,8 @@ if ($action == 'edit' && $permissiontowrite) {
 				print dolGetButtonAction('', $langs->trans('InstallmentsCreateInvoice'), 'default', $self.'&lineid='.$line->id.'&action=createinvoice&token='.newToken(), '', $permissiontowrite && $user->hasRight('facture', 'creer'), array('attr' => array('class' => 'small')));
 				print dolGetButtonAction('', $langs->trans('InstallmentsLinkInvoice'), 'default', $self.'&lineid='.$line->id.'&action=linkinvoice&token='.newToken(), '', $permissiontowrite, array('attr' => array('class' => 'small')));
 				print dolGetButtonAction('', $langs->trans('InstallmentsAbandon'), 'default', $self.'&lineid='.$line->id.'&action=abandon&token='.newToken(), '', $permissiontowrite, array('attr' => array('class' => 'small')));
+			} elseif ($schedule->billing && $line->invoiceid) {	// A wrong invoice, found by the import for example
+				print dolGetButtonAction('', $langs->trans('InstallmentsUnlinkInvoice'), 'default', $self.'&lineid='.$line->id.'&action=unlinkinvoice&token='.newToken(), '', $permissiontowrite, array('attr' => array('class' => 'small')));
 			}
 			print '</td></tr>';
 		}

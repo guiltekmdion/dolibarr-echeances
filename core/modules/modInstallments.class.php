@@ -159,10 +159,10 @@ class modInstallments extends DolibarrModules
 		// Array to add new pages in new tabs
 		/* BEGIN MODULEBUILDER TABS */
 		$this->tabs = array(
-			'invoice:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("facture", "lire") && empty($user->socid):/installments/schedule.php?element=facture&id=__ID__',
-			'propal:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("propal", "lire") && empty($user->socid):/installments/schedule.php?element=propal&id=__ID__',
-			'order:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("commande", "lire") && empty($user->socid):/installments/schedule.php?element=commande&id=__ID__',
-			'thirdparty:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("facture", "lire") && empty($user->socid):/installments/list.php?socid=__ID__',
+			'invoice:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("facture", "lire") && !$user->socid:/installments/schedule.php?element=facture&id=__ID__',
+			'propal:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("propal", "lire") && !$user->socid:/installments/schedule.php?element=propal&id=__ID__',
+			'order:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("commande", "lire") && !$user->socid:/installments/schedule.php?element=commande&id=__ID__',
+			'thirdparty:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("facture", "lire") && !$user->socid:/installments/list.php?socid=__ID__',
 		);
 		/* END MODULEBUILDER TABS */
 
