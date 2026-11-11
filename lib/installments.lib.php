@@ -19,9 +19,9 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/lib/paymentschedule.lib.php
- * \ingroup paymentschedule
- * \brief   Library files with common functions for PaymentSchedule
+ * \file    installments/lib/installments.lib.php
+ * \ingroup installments
+ * \brief   Library files with common functions for InstallmentSchedule
  */
 
 /**
@@ -29,36 +29,36 @@ declare(strict_types=1);
  *
  * @return array<array{string,string,string}>
  */
-function paymentscheduleAdminPrepareHead()
+function installmentsAdminPrepareHead()
 {
 	global $db, $langs, $conf;
 
-	$langs->load("paymentschedule@paymentschedule");
+	$langs->load("installments@installments");
 
 	$h = 0;
 	$head = array();
 
-	$head[$h][0] = dolBuildUrl(dol_buildpath("/paymentschedule/admin/setup.php", 1));
+	$head[$h][0] = dolBuildUrl(dol_buildpath("/installments/admin/setup.php", 1));
 	$head[$h][1] = $langs->trans("Settings");
 	$head[$h][2] = 'settings';
 	$h++;
 
 	$tables = $db->DDLListTables($db->database_name, $db->prefix().'echeancier');
 	if (is_array($tables) && in_array($db->prefix().'echeancier', $tables)) {
-		$head[$h][0] = dolBuildUrl(dol_buildpath("/paymentschedule/admin/import.php", 1));
-		$head[$h][1] = $langs->trans("PaymentScheduleImport");
+		$head[$h][0] = dolBuildUrl(dol_buildpath("/installments/admin/import.php", 1));
+		$head[$h][1] = $langs->trans("InstallmentsImport");
 		$head[$h][2] = 'import';
 		$h++;
 	}
 
-	$head[$h][0] = dolBuildUrl(dol_buildpath("/paymentschedule/admin/about.php", 1));
+	$head[$h][0] = dolBuildUrl(dol_buildpath("/installments/admin/about.php", 1));
 	$head[$h][1] = $langs->trans("About");
 	$head[$h][2] = 'about';
 	$h++;
 
-	complete_head_from_modules($conf, $langs, null, $head, $h, 'paymentschedule@paymentschedule');
+	complete_head_from_modules($conf, $langs, null, $head, $h, 'installments@installments');
 
-	complete_head_from_modules($conf, $langs, null, $head, $h, 'paymentschedule@paymentschedule', 'remove');
+	complete_head_from_modules($conf, $langs, null, $head, $h, 'installments@installments', 'remove');
 
 	return $head;
 }

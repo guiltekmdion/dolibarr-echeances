@@ -13,10 +13,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see https://www.gnu.org/licenses/.
 --
--- Installments of the schedules of the module PaymentSchedule
+-- Installments of the schedules of the module InstallmentSchedule
 
 
-CREATE TABLE llx_paymentschedule_line(
+CREATE TABLE llx_installments_line(
 	rowid integer AUTO_INCREMENT PRIMARY KEY NOT NULL,
 	fk_schedule integer NOT NULL,
 	rang integer DEFAULT 0 NOT NULL,

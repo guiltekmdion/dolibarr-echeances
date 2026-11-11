@@ -12,7 +12,7 @@ In Dolibarr, an invoice has one due date and one payment mode. This module adds 
 - **Payment schedule tab** on invoices, proposals and orders: the installments (date, amount, mode, paid, rest, state to come / late / paid / invoiced), made from a template or "in N times" (number, months and days between two installments, share of the first one), edited line by line, previewed before saving. An installment paid, invoiced or direct debited can no longer change.
 - **What is paid** is never typed: the payments, credit notes and deposits of the invoice are given to its installments by date, oldest first.
 - **Due date of the invoice = next unpaid installment**, computed again at each payment: the "late" lists, widgets, reminder job and PDF of Dolibarr follow the installments, with no change to the core. The cash forecast of Dolibarr takes this date, but for the whole rest to pay of the invoice.
-- **PDF of the invoice** (model sponge): the table of the installments under the totals (beyond 10 installments, those left to pay and one line for the last ones). Key `__PAYMENTSCHEDULE__` (one installment per line, in HTML) for the public note, the email templates and the ODT documents.
+- **PDF of the invoice** (model sponge): the table of the installments under the totals (beyond 10 installments, those left to pay and one line for the last ones). Key `__INSTALLMENTS__` (one installment per line, in HTML) for the public note, the email templates and the ODT documents.
 - **One invoice per installment** (proposals and orders): the job "Invoices of the installments" creates the invoice of each installment on its date, in proportion to each VAT rate of the document (the last installment takes what is left of each line). Set by schedule: draft, validated, or validated and sent by email (chosen template, billing contact else email of the customer, PDF attached). Button "Invoice now" and mass action to do it by hand.
 - **Direct debits**: the job "Direct debits of the installments" creates the direct debit request of each installment paid by direct debit, some days before its date (5 by default).
 - **List Billing > Payment schedules**: all the installments, filters (state, type, mode, period, search), mass actions "Record the payments" (one payment per invoice, once the bank statement is checked) and "Invoice the installments". The same table in a tab of the customer.
@@ -35,8 +35,8 @@ Dolibarr 24.0 or later, with the modules Customer invoices and Scheduled jobs (C
 
 ## Installation
 
-1. Download `module_paymentschedule-X.Y.Z.zip` from the [releases](https://github.com/guiltekmdion/dolibarr-echeances/releases).
-2. In Dolibarr: Home > Setup > Modules > Deploy/install external app/module, then send the zip. Or unzip it into `htdocs/custom` (the folder `paymentschedule` must be `htdocs/custom/paymentschedule`).
+1. Download `module_installments-X.Y.Z.zip` from the [releases](https://github.com/guiltekmdion/dolibarr-echeances/releases).
+2. In Dolibarr: Home > Setup > Modules > Deploy/install external app/module, then send the zip. Or unzip it into `htdocs/custom` (the folder `installments` must be `htdocs/custom/installments`).
 3. Enable the module **Payment schedules** (in Financial modules), then give the rights to the users.
 
 After an update of the module, disable it and enable it again: **required**.

@@ -18,8 +18,8 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/core/triggers/interface_99_modPaymentSchedule_PaymentScheduleTriggers.class.php
- * \ingroup paymentschedule
+ * \file    installments/core/triggers/interface_99_modInstallments_InstallmentsTriggers.class.php
+ * \ingroup installments
  * \brief   Due date of the invoices kept on their next unpaid installment, schedules copied from the order or proposal, and deleted with their document
  */
 
@@ -27,9 +27,9 @@ require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
 
 
 /**
- * Triggers of the module PaymentSchedule. They never stop the action of the core: an error is only logged.
+ * Triggers of the module InstallmentSchedule. They never stop the action of the core: an error is only logged.
  */
-class InterfacePaymentScheduleTriggers extends DolibarrTriggers
+class InterfaceInstallmentsTriggers extends DolibarrTriggers
 {
 	/**
 	 * Constructor
@@ -57,11 +57,11 @@ class InterfacePaymentScheduleTriggers extends DolibarrTriggers
 	 */
 	public function runTrigger($action, $object, User $user, Translate $langs, Conf $conf)
 	{
-		if (!isModEnabled('paymentschedule')) {
+		if (!isModEnabled('installments')) {
 			return 0;
 		}
-		dol_include_once('/paymentschedule/class/paymentschedule.class.php');
-		$schedule = new PaymentSchedule($this->db);
+		dol_include_once('/installments/class/installmentschedule.class.php');
+		$schedule = new InstallmentSchedule($this->db);
 		$result = 0;
 
 		switch ($action) {
@@ -102,7 +102,7 @@ class InterfacePaymentScheduleTriggers extends DolibarrTriggers
 				break;
 			case 'BILL_DELETE':	// Its schedule goes with it; an installment it invoiced is to check again, never invoiced again by the job
 				$result = $schedule->delete($user, $object, true);
-				$sql = "UPDATE ".$this->db->prefix()."paymentschedule_line SET fk_facture = NULL, status = ".PaymentSchedule::STATUS_TOCHECK." WHERE fk_facture = ".((int) $object->id);
+				$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_facture = NULL, status = ".InstallmentSchedule::STATUS_TOCHECK." WHERE fk_facture = ".((int) $object->id);
 				$result = ($this->db->query($sql) ? $result : -1);
 				break;
 			case 'PROPAL_DELETE':
@@ -120,12 +120,12 @@ class InterfacePaymentScheduleTriggers extends DolibarrTriggers
 	/**
 	 * Due date of an invoice from its installments
 	 *
-	 * @param	PaymentSchedule		$schedule	Schedules
+	 * @param	InstallmentSchedule		$schedule	Schedules
 	 * @param	int					$invoiceid	Invoice
 	 * @param	float				$excluded	Amount of a payment being deleted
 	 * @return	int								1 if changed, 0 if nothing to do, -1 if error
 	 */
-	private function sync(PaymentSchedule $schedule, $invoiceid, $excluded = 0.0)
+	private function sync(InstallmentSchedule $schedule, $invoiceid, $excluded = 0.0)
 	{
 		$invoice = new Facture($this->db);
 		if ($invoice->fetch($invoiceid) <= 0) {

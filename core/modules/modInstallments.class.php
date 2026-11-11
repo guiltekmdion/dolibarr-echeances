@@ -21,20 +21,20 @@
 declare(strict_types=1);
 
 /**
- * 	\defgroup   paymentschedule     Module PaymentSchedule
- *  \brief      PaymentSchedule module descriptor.
+ * 	\defgroup   installments     Module InstallmentSchedule
+ *  \brief      InstallmentSchedule module descriptor.
  *
- *  \file       htdocs/paymentschedule/core/modules/modPaymentSchedule.class.php
- *  \ingroup    paymentschedule
- *  \brief      Description and activation file for module PaymentSchedule
+ *  \file       htdocs/installments/core/modules/modInstallments.class.php
+ *  \ingroup    installments
+ *  \brief      Description and activation file for module InstallmentSchedule
  */
 include_once DOL_DOCUMENT_ROOT.'/core/modules/DolibarrModules.class.php';
 
 
 /**
- *  Description and activation class for module PaymentSchedule
+ *  Description and activation class for module InstallmentSchedule
  */
-class modPaymentSchedule extends DolibarrModules
+class modInstallments extends DolibarrModules
 {
 	/**
 	 * Constructor. Define names, constants, directories, boxes, permissions
@@ -52,7 +52,7 @@ class modPaymentSchedule extends DolibarrModules
 		$this->numero = 231255; // In the range 231250-231259 of Guiltek (module Reminders: 231250)
 
 		// Key text used to identify module (for permissions, menus, etc...)
-		$this->rights_class = 'paymentschedule';
+		$this->rights_class = 'installments';
 
 		// Family can be 'base' (core modules),'crm','financial','hr','projects','products','ecm','technic' (transverse modules),'interface' (link with external tools),'other','...'
 		$this->family = "financial";
@@ -60,10 +60,10 @@ class modPaymentSchedule extends DolibarrModules
 		// Module position in the family on 2 digits ('01', '10', '20', ...)
 		$this->module_position = '13';	// Just after Customer invoices and Reminders
 
-		// Module label (no space allowed), used if translation string 'ModulePaymentScheduleName' not found (PaymentSchedule is name of module).
+		// Module label (no space allowed), used if translation string 'ModuleInstallmentsName' not found (InstallmentSchedule is name of module).
 		$this->name = preg_replace('/^mod/i', '', get_class($this));
 
-		// Module description, used if translation string 'ModulePaymentScheduleDesc' not found (PaymentSchedule is name of module).
+		// Module description, used if translation string 'ModuleInstallmentsDesc' not found (InstallmentSchedule is name of module).
 		$this->description = 'Payment schedules: an invoice paid in several installments, or a proposal or an order invoiced in several times';
 		// Used only if file README.md and README-LL.md not found.
 		$this->descriptionlong = 'Payment schedules: an invoice paid in several installments, or a proposal or an order invoiced in several times';
@@ -76,7 +76,7 @@ class modPaymentSchedule extends DolibarrModules
 		// Possible values for version are: 'development', 'experimental', 'dolibarr', 'dolibarr_deprecated', 'experimental_deprecated' or a version string like 'x.y.z'
 		$this->version = '1.0.0';
 
-		// Key used in llx_const table to save module status enabled/disabled (where PAYMENTSCHEDULE is value of property name of module in uppercase)
+		// Key used in llx_const table to save module status enabled/disabled (where INSTALLMENTS is value of property name of module in uppercase)
 		$this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
 
 		// Name of image file used for this module.
@@ -89,7 +89,7 @@ class modPaymentSchedule extends DolibarrModules
 			// Set this to 1 if module has its own login method file (core/login)
 			'login' => 0,
 			// Set this to 1 if module has its own substitution function file (core/substitutions)
-			'substitutions' => 1,	// Key __PAYMENTSCHEDULE__ for the notes, emails and ODT documents
+			'substitutions' => 1,	// Key __INSTALLMENTS__ for the notes, emails and ODT documents
 			// Set this to 1 if module has its own menus handler directory (core/menus)
 			'menus' => 0,
 			// Set this to 1 if module overwrite template dir (core/tpl)
@@ -124,17 +124,17 @@ class modPaymentSchedule extends DolibarrModules
 		// Data directories to create when module is enabled.
 		$this->dirs = array();	// The module stores no file
 
-		// Config pages. Put here list of php page, stored into paymentschedule/admin directory, to use to setup module.
-		$this->config_page_url = array("setup.php@paymentschedule");
+		// Config pages. Put here list of php page, stored into installments/admin directory, to use to setup module.
+		$this->config_page_url = array("setup.php@installments");
 
 		// Dependencies
-		$this->hidden = getDolGlobalInt('MODULE_PAYMENTSCHEDULE_DISABLED'); // A condition to disable module;
+		$this->hidden = getDolGlobalInt('MODULE_INSTALLMENTS_DISABLED'); // A condition to disable module;
 		$this->depends = array('modFacture', 'modCron');	// The invoices of the installments and the direct debits are made by scheduled jobs
 		$this->requiredby = array();
 		$this->conflictwith = array();
 
 		// The language file dedicated to your module
-		$this->langfiles = array("paymentschedule@paymentschedule");
+		$this->langfiles = array("installments@installments");
 
 		// Prerequisites
 		$this->phpmin = array(8, 1); // Minimum version of PHP required by module
@@ -147,39 +147,39 @@ class modPaymentSchedule extends DolibarrModules
 
 		// Constants: the date of the first run of the job is deleted with the module, so a module enabled again does not invoice the installments passed meanwhile
 		$this->const = array(
-			0 => array('PAYMENTSCHEDULE_START_DATE', 'chaine', '', 'Date of the first run of the job: the installments due before are invoiced by hand', 0, 'current', 1),
+			0 => array('INSTALLMENTS_START_DATE', 'chaine', '', 'Date of the first run of the job: the installments due before are invoiced by hand', 0, 'current', 1),
 		);
 
-		if (!isModEnabled("paymentschedule")) {
-			$conf->paymentschedule = new stdClass();
-			$conf->paymentschedule->enabled = 0;
+		if (!isModEnabled("installments")) {
+			$conf->installments = new stdClass();
+			$conf->installments->enabled = 0;
 		}
 
 		// Array to add new pages in new tabs
 		/* BEGIN MODULEBUILDER TABS */
 		$this->tabs = array(
-			'invoice:+paymentschedule:PaymentSchedule:paymentschedule@paymentschedule:$user->hasRight("paymentschedule", "read") && $user->hasRight("facture", "lire"):/paymentschedule/schedule.php?element=facture&id=__ID__',
-			'propal:+paymentschedule:PaymentSchedule:paymentschedule@paymentschedule:$user->hasRight("paymentschedule", "read") && $user->hasRight("propal", "lire"):/paymentschedule/schedule.php?element=propal&id=__ID__',
-			'order:+paymentschedule:PaymentSchedule:paymentschedule@paymentschedule:$user->hasRight("paymentschedule", "read") && $user->hasRight("commande", "lire"):/paymentschedule/schedule.php?element=commande&id=__ID__',
-			'thirdparty:+paymentschedule:PaymentSchedule:paymentschedule@paymentschedule:$user->hasRight("paymentschedule", "read") && $user->hasRight("facture", "lire"):/paymentschedule/list.php?socid=__ID__',
+			'invoice:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("facture", "lire"):/installments/schedule.php?element=facture&id=__ID__',
+			'propal:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("propal", "lire"):/installments/schedule.php?element=propal&id=__ID__',
+			'order:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("commande", "lire"):/installments/schedule.php?element=commande&id=__ID__',
+			'thirdparty:+installments:InstallmentSchedule:installments@installments:$user->hasRight("installments", "read") && $user->hasRight("facture", "lire"):/installments/list.php?socid=__ID__',
 		);
 		/* END MODULEBUILDER TABS */
 
 		// Dictionaries
 		/* BEGIN MODULEBUILDER DICTIONARIES */
 		$this->dictionaries = array(
-			'langs' => 'paymentschedule@paymentschedule',
-			'tabname' => array('c_paymentschedule_template'),
-			'tablib' => array('PaymentScheduleTemplates'),
-			'tabsql' => array('SELECT t.rowid as rowid, t.code, t.label, t.nb, t.months, t.days, t.first_percent, t.mode_code, t.position, t.active, t.entity FROM '.$this->db->prefix().'c_paymentschedule_template as t WHERE t.entity IN ('.getEntity('c_paymentschedule_template').')'),
+			'langs' => 'installments@installments',
+			'tabname' => array('c_installments_template'),
+			'tablib' => array('InstallmentsTemplates'),
+			'tabsql' => array('SELECT t.rowid as rowid, t.code, t.label, t.nb, t.months, t.days, t.first_percent, t.mode_code, t.position, t.active, t.entity FROM '.$this->db->prefix().'c_installments_template as t WHERE t.entity IN ('.getEntity('c_installments_template').')'),
 			'tabsqlsort' => array('position ASC, label ASC'),
 			'tabfield' => array('code,label,nb,months,days,first_percent,mode_code,position'),
 			'tabfieldvalue' => array('code,label,nb,months,days,first_percent,mode_code,position'),
 			'tabfieldinsert' => array('code,label,nb,months,days,first_percent,mode_code,position,entity'),
 			'tabrowid' => array('rowid'),
-			'tabcond' => array(isModEnabled('paymentschedule')),
-			'tabhelp' => array(array('nb' => $langs->trans('PaymentScheduleHelpNb'), 'months' => $langs->trans('PaymentScheduleHelpMonths'), 'days' => $langs->trans('PaymentScheduleHelpDays'),
-				'first_percent' => $langs->trans('PaymentScheduleHelpFirstPercent'), 'mode_code' => $langs->trans('PaymentScheduleHelpModeCode'))),
+			'tabcond' => array(isModEnabled('installments')),
+			'tabhelp' => array(array('nb' => $langs->trans('InstallmentsHelpNb'), 'months' => $langs->trans('InstallmentsHelpMonths'), 'days' => $langs->trans('InstallmentsHelpDays'),
+				'first_percent' => $langs->trans('InstallmentsHelpFirstPercent'), 'mode_code' => $langs->trans('InstallmentsHelpModeCode'))),
 		);
 		/* END MODULEBUILDER DICTIONARIES */
 
@@ -187,7 +187,7 @@ class modPaymentSchedule extends DolibarrModules
 		/* BEGIN MODULEBUILDER WIDGETS */
 		$this->boxes = array(
 			0 => array(
-				'file' => 'box_paymentschedule.php@paymentschedule',
+				'file' => 'box_installments.php@installments',
 				'note' => 'Installments expected this month and late ones',
 				'enabledbydefaulton' => 'Home',
 			),
@@ -198,31 +198,31 @@ class modPaymentSchedule extends DolibarrModules
 		/* BEGIN MODULEBUILDER CRON */
 		$this->cronjobs = array(
 			0 => array(
-				'label' => 'PaymentScheduleInvoiceJob:paymentschedule@paymentschedule',
+				'label' => 'InstallmentsInvoiceJob:installments@installments',
 				'jobtype' => 'method',
-				'class' => '/paymentschedule/class/paymentschedule.class.php',
-				'objectname' => 'PaymentSchedule',
+				'class' => '/installments/class/installmentschedule.class.php',
+				'objectname' => 'InstallmentSchedule',
 				'method' => 'createDueInvoices',
 				'parameters' => '',
-				'comment' => 'PaymentScheduleInvoiceJobComment',
+				'comment' => 'InstallmentsInvoiceJobComment',
 				'frequency' => 1,
 				'unitfrequency' => 3600 * 24,
 				'status' => 0,
-				'test' => 'isModEnabled("paymentschedule") && isModEnabled("invoice")',
+				'test' => 'isModEnabled("installments") && isModEnabled("invoice")',
 				'priority' => 50,
 			),
 			1 => array(
-				'label' => 'PaymentScheduleDebitJob:paymentschedule@paymentschedule',
+				'label' => 'InstallmentsDebitJob:installments@installments',
 				'jobtype' => 'method',
-				'class' => '/paymentschedule/class/paymentschedule.class.php',
-				'objectname' => 'PaymentSchedule',
+				'class' => '/installments/class/installmentschedule.class.php',
+				'objectname' => 'InstallmentSchedule',
 				'method' => 'createDirectDebits',
 				'parameters' => '',
-				'comment' => 'PaymentScheduleDebitJobComment',
+				'comment' => 'InstallmentsDebitJobComment',
 				'frequency' => 1,
 				'unitfrequency' => 3600 * 24,
 				'status' => 0,
-				'test' => 'isModEnabled("paymentschedule") && isModEnabled("prelevement")',
+				'test' => 'isModEnabled("installments") && isModEnabled("prelevement")',
 				'priority' => 50,
 			),
 		);
@@ -234,7 +234,7 @@ class modPaymentSchedule extends DolibarrModules
 		/* BEGIN MODULEBUILDER PERMISSIONS */
 		$this->rights[$r][0] = $this->numero.sprintf("%02d", 1); // Permission id (must not be already used)
 		$this->rights[$r][1] = 'Read payment schedules'; // Permission label
-		$this->rights[$r][4] = 'read'; // In php code, permission will be checked by test if ($user->hasRight('paymentschedule', 'read'))
+		$this->rights[$r][4] = 'read'; // In php code, permission will be checked by test if ($user->hasRight('installments', 'read'))
 		$r++;
 		$this->rights[$r][0] = $this->numero.sprintf("%02d", 2);
 		$this->rights[$r][1] = 'Create and modify payment schedules, invoice their installments';
@@ -250,15 +250,15 @@ class modPaymentSchedule extends DolibarrModules
 		$this->menu[$r++] = array(
 			'fk_menu' => 'fk_mainmenu=billing',
 			'type' => 'left',
-			'titre' => 'PaymentScheduleMenu',
+			'titre' => 'InstallmentsMenu',
 			'prefix' => img_picto('', $this->picto, 'class="paddingright pictofixedwidth"'),
 			'mainmenu' => 'billing',
-			'leftmenu' => 'paymentschedule',
-			'url' => '/paymentschedule/list.php',
-			'langs' => 'paymentschedule@paymentschedule',
+			'leftmenu' => 'installments',
+			'url' => '/installments/list.php',
+			'langs' => 'installments@installments',
 			'position' => 120,
-			'enabled' => 'isModEnabled("paymentschedule") && isModEnabled("invoice")',
-			'perms' => '$user->hasRight("paymentschedule", "read") && $user->hasRight("facture", "lire")',
+			'enabled' => 'isModEnabled("installments") && isModEnabled("invoice")',
+			'perms' => '$user->hasRight("installments", "read") && $user->hasRight("facture", "lire")',
 			'target' => '',
 			'user' => 0,
 		);
@@ -275,16 +275,16 @@ class modPaymentSchedule extends DolibarrModules
 	 */
 	public function init($options = '')
 	{
-		$result = $this->_load_tables('/paymentschedule/sql/');
+		$result = $this->_load_tables('/installments/sql/');
 		if ($result < 0) {
 			return -1;
 		}
 
 		// The templates ready to use, when the dictionary of the entity is empty
-		dol_include_once('/paymentschedule/class/paymentschedule.class.php');
-		$paymentschedule = new PaymentSchedule($this->db);
-		if ($paymentschedule->initTemplates() < 0) {
-			$this->error = $paymentschedule->error;
+		dol_include_once('/installments/class/installmentschedule.class.php');
+		$installments = new InstallmentSchedule($this->db);
+		if ($installments->initTemplates() < 0) {
+			$this->error = $installments->error;
 			return -1;
 		}
 

@@ -18,24 +18,24 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/core/boxes/box_paymentschedule.php
- * \ingroup paymentschedule
+ * \file    installments/core/boxes/box_installments.php
+ * \ingroup installments
  * \brief   Widget: the late installments and those expected up to the end of the month
  */
 
 include_once DOL_DOCUMENT_ROOT.'/core/boxes/modules_boxes.php';
-dol_include_once('/paymentschedule/class/paymentschedule.class.php');
+dol_include_once('/installments/class/installmentschedule.class.php');
 
 
 /**
- * Widget of the module PaymentSchedule
+ * Widget of the module InstallmentSchedule
  */
-class box_paymentschedule extends ModeleBoxes
+class box_installments extends ModeleBoxes
 {
 	/**
 	 * @var string Alphanumeric ID. Populated by the constructor.
 	 */
-	public $boxcode = 'paymentschedule';
+	public $boxcode = 'installments';
 
 	/**
 	 * @var string Box icon (in configuration page)
@@ -45,17 +45,17 @@ class box_paymentschedule extends ModeleBoxes
 	/**
 	 * @var string Box label (in configuration page)
 	 */
-	public $boxlabel = 'PaymentScheduleWidget';
+	public $boxlabel = 'InstallmentsWidget';
 
 	/**
 	 * @var string Box language file if it needs a specific language file.
 	 */
-	public $lang = 'paymentschedule@paymentschedule';
+	public $lang = 'installments@installments';
 
 	/**
 	 * @var string[] Module dependencies
 	 */
-	public $depends = array('paymentschedule');
+	public $depends = array('installments');
 
 
 	/**
@@ -69,7 +69,7 @@ class box_paymentschedule extends ModeleBoxes
 		global $user;
 
 		parent::__construct($db, $param);
-		$this->hidden = !($user->hasRight('paymentschedule', 'read') && $user->hasRight('facture', 'lire'));
+		$this->hidden = !($user->hasRight('installments', 'read') && $user->hasRight('facture', 'lire'));
 	}
 
 	/**
@@ -83,27 +83,27 @@ class box_paymentschedule extends ModeleBoxes
 		global $conf, $langs, $user;
 
 		$this->max = $max;
-		$langs->loadLangs(array('bills', 'paymentschedule@paymentschedule'));
-		$this->info_box_head = array('text' => $langs->trans('PaymentScheduleWidgetTitle', $max), 'limit' => 0, 'sublink' => dol_buildpath('/paymentschedule/list.php', 1),
+		$langs->loadLangs(array('bills', 'installments@installments'));
+		$this->info_box_head = array('text' => $langs->trans('InstallmentsWidgetTitle', $max), 'limit' => 0, 'sublink' => dol_buildpath('/installments/list.php', 1),
 			'subpicto' => 'list', 'subtext' => $langs->trans('List'));
 		$this->info_box_contents = array();
 		if ($this->hidden) {
 			return;
 		}
-		$paymentschedule = new PaymentSchedule($this->db);
-		$rows = $paymentschedule->getInstallments($user, array('date_end' => dol_get_last_day((int) dol_print_date(dol_now(), '%Y'), (int) dol_print_date(dol_now(), '%m')),
+		$installments = new InstallmentSchedule($this->db);
+		$rows = $installments->getInstallments($user, array('date_end' => dol_get_last_day((int) dol_print_date(dol_now(), '%Y'), (int) dol_print_date(dol_now(), '%m')),
 			'states' => array('late', 'todo')));
 		if (!is_array($rows)) {
-			$this->info_box_contents[0][0] = array('td' => '', 'maxlength' => 500, 'text' => dolPrintLabel($paymentschedule->error));
+			$this->info_box_contents[0][0] = array('td' => '', 'maxlength' => 500, 'text' => dolPrintLabel($installments->error));
 			return;
 		}
 		foreach (array_slice($rows, 0, $max) as $i => $row) {
-			$url = dol_buildpath('/paymentschedule/schedule.php', 1).'?element='.urlencode($row->element).'&id='.$row->fk_element;
+			$url = dol_buildpath('/installments/schedule.php', 1).'?element='.urlencode($row->element).'&id='.$row->fk_element;
 			$this->info_box_contents[$i][0] = array('td' => 'class="nowraponall"', 'text' => dolPrintLabel($row->ref), 'url' => $url);
 			$this->info_box_contents[$i][1] = array('td' => 'class="tdoverflowmax150"', 'text' => dolPrintLabel($row->socname));
 			$this->info_box_contents[$i][2] = array('td' => 'class="nowraponall center"', 'text' => dol_print_date($row->date, 'day').($row->state == 'late' ? ' '.img_warning($langs->trans('Late')) : ''), 'asis' => 1);
 			$this->info_box_contents[$i][3] = array('td' => 'class="nowraponall right amount"', 'text' => price($row->amount - $row->paid, 0, $langs, 1, -1, -1, $conf->currency));
-			$this->info_box_contents[$i][4] = array('td' => 'class="right"', 'text' => $langs->trans($row->billing ? 'PaymentScheduleToInvoice' : 'PaymentScheduleToCollect'));
+			$this->info_box_contents[$i][4] = array('td' => 'class="right"', 'text' => $langs->trans($row->billing ? 'InstallmentsToInvoice' : 'InstallmentsToCollect'));
 		}
 		if (empty($rows)) {
 			$this->info_box_contents[0][0] = array('td' => 'class="center"', 'text' => '<span class="opacitymedium">'.$langs->trans('None').'</span>', 'asis' => 1);

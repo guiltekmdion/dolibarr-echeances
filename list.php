@@ -18,8 +18,8 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/list.php
- * \ingroup paymentschedule
+ * \file    installments/list.php
+ * \ingroup installments
  * \brief   Installments of all the schedules (Billing > Payment schedules), or of one customer (tab of the thirdparty)
  */
 
@@ -59,7 +59,7 @@ if (!$res) {
 }
 require_once DOL_DOCUMENT_ROOT.'/core/lib/company.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
-dol_include_once('/paymentschedule/class/paymentschedule.class.php');
+dol_include_once('/installments/class/installmentschedule.class.php');
 
 /**
  * @var Conf $conf
@@ -69,9 +69,9 @@ dol_include_once('/paymentschedule/class/paymentschedule.class.php');
  * @var User $user
  */
 
-$langs->loadLangs(array('bills', 'banks', 'companies', 'paymentschedule@paymentschedule'));
+$langs->loadLangs(array('bills', 'banks', 'companies', 'installments@installments'));
 
-if (!isModEnabled('paymentschedule') || !isModEnabled('invoice') || !$user->hasRight('paymentschedule', 'read') || !$user->hasRight('facture', 'lire') || $user->socid > 0) {
+if (!isModEnabled('installments') || !isModEnabled('invoice') || !$user->hasRight('installments', 'read') || !$user->hasRight('facture', 'lire') || $user->socid > 0) {
 	accessforbidden();
 }
 
@@ -118,15 +118,15 @@ $param .= '&search_state='.urlencode($search_state).($search_type ? '&search_typ
 $param .= ($search_date_start ? '&search_date_startday='.dol_print_date($search_date_start, '%d').'&search_date_startmonth='.dol_print_date($search_date_start, '%m').'&search_date_startyear='.dol_print_date($search_date_start, '%Y') : '');
 $param .= ($search_date_end ? '&search_date_endday='.dol_print_date($search_date_end, '%d').'&search_date_endmonth='.dol_print_date($search_date_end, '%m').'&search_date_endyear='.dol_print_date($search_date_end, '%Y') : '');
 
-$paymentschedule = new PaymentSchedule($db);
-$hookmanager->initHooks(array('paymentschedulelist'));
+$installments = new InstallmentSchedule($db);
+$hookmanager->initHooks(array('installmentslist'));
 
 $arrayofmassactions = array();
 if ($user->hasRight('facture', 'paiement')) {
-	$arrayofmassactions['prerecordpayments'] = $langs->trans('PaymentScheduleRecordPayments');
+	$arrayofmassactions['prerecordpayments'] = $langs->trans('InstallmentsRecordPayments');
 }
-if ($user->hasRight('paymentschedule', 'write') && $user->hasRight('facture', 'creer')) {
-	$arrayofmassactions['precreateinvoices'] = $langs->trans('PaymentScheduleCreateInvoices');
+if ($user->hasRight('installments', 'write') && $user->hasRight('facture', 'creer')) {
+	$arrayofmassactions['precreateinvoices'] = $langs->trans('InstallmentsCreateInvoices');
 }
 
 
@@ -143,17 +143,17 @@ if ($massaction && empty($toselect)) {
 }
 
 $parameters = array('arrayofselected' => $toselect);
-$reshook = $hookmanager->executeHooks('doActions', $parameters, $paymentschedule, $action); // Note that $action and $object may have been modified by some hooks
+$reshook = $hookmanager->executeHooks('doActions', $parameters, $installments, $action); // Note that $action and $object may have been modified by some hooks
 if ($reshook < 0) {
 	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
 }
 
 if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_recordpayments' && isset($arrayofmassactions['prerecordpayments']) && !empty($toselect)) {
-	$result = $paymentschedule->recordPayments($user, $toselect, GETPOSTDATE('paymentdate', '12:00:00', 'tzserver') ?: dol_now(), GETPOSTINT('paymentmode'), GETPOSTINT('accountid'));
+	$result = $installments->recordPayments($user, $toselect, GETPOSTDATE('paymentdate', '12:00:00', 'tzserver') ?: dol_now(), GETPOSTINT('paymentmode'), GETPOSTINT('accountid'));
 	if ($result < 0) {
-		setEventMessages($paymentschedule->error, $paymentschedule->errors, 'errors');
+		setEventMessages($installments->error, $installments->errors, 'errors');
 	} else {
-		setEventMessages($langs->trans('PaymentScheduleNbPayments', $result), $paymentschedule->errors, ($paymentschedule->errors ? 'warnings' : 'mesgs'));
+		setEventMessages($langs->trans('InstallmentsNbPayments', $result), $installments->errors, ($installments->errors ? 'warnings' : 'mesgs'));
 	}
 	header('Location: '.$_SERVER['PHP_SELF'].'?'.ltrim($param, '&'));
 	exit;
@@ -161,23 +161,23 @@ if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_recordpayments' 
 if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_createinvoices' && isset($arrayofmassactions['precreateinvoices']) && !empty($toselect)) {
 	$nb = 0;
 	$errors = array();
-	$rows = $paymentschedule->getInstallments($user, array('type' => 'billing'));
+	$rows = $installments->getInstallments($user, array('type' => 'billing'));
 	foreach (is_array($rows) ? $rows : array() as $row) {
-		if (!in_array($row->id, $toselect) || $row->invoiceid || $row->status == PaymentSchedule::STATUS_ABANDONED || !$user->hasRight($row->element, 'creer')) {	// Like the tab: the right to modify the proposal or the order
+		if (!in_array($row->id, $toselect) || $row->invoiceid || $row->status == InstallmentSchedule::STATUS_ABANDONED || !$user->hasRight($row->element, 'creer')) {	// Like the tab: the right to modify the proposal or the order
 			continue;
 		}
-		$schedule = $paymentschedule->fetch($row->element, $row->fk_element);
+		$schedule = $installments->fetch($row->element, $row->fk_element);
 		foreach (is_object($schedule) ? $schedule->lines : array() as $line) {
 			if ($line->id == $row->id) {
-				if ($paymentschedule->createInvoice($user, $schedule, $line) > 0) {
+				if ($installments->createInvoice($user, $schedule, $line) > 0) {
 					$nb++;
 				} else {
-					$errors[] = $paymentschedule->error;
+					$errors[] = $installments->error;
 				}
 			}
 		}
 	}
-	setEventMessages($langs->trans('PaymentScheduleInvoicesCreated', $nb), array_merge($errors, $paymentschedule->errors), ($errors || $paymentschedule->errors ? 'warnings' : 'mesgs'));
+	setEventMessages($langs->trans('InstallmentsInvoicesCreated', $nb), array_merge($errors, $installments->errors), ($errors || $installments->errors ? 'warnings' : 'mesgs'));
 	header('Location: '.$_SERVER['PHP_SELF'].'?'.ltrim($param, '&'));
 	exit;
 }
@@ -190,9 +190,9 @@ if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_createinvoices' 
 $form = new Form($db);
 $filters = array('socid' => $socid, 'type' => $search_type, 'search' => $search, 'date_start' => $search_date_start, 'date_end' => $search_date_end,
 	'states' => $states[$search_state], 'mode' => $search_mode);
-$rows = $paymentschedule->getInstallments($user, $filters);
+$rows = $installments->getInstallments($user, $filters);
 if (!is_array($rows)) {
-	setEventMessages($paymentschedule->error, null, 'errors');
+	setEventMessages($installments->error, null, 'errors');
 	$rows = array();
 }
 $total = 0.0;
@@ -209,13 +209,13 @@ $rows = array_slice($rows, $limit * $page, $limit);
 $num = count($rows);
 $massactionbutton = $form->selectMassAction('', $arrayofmassactions);
 
-$title = $langs->trans('PaymentScheduleMenu');
-llxHeader('', $title, '', '', 0, 0, '', '', '', 'mod-paymentschedule page-list');
+$title = $langs->trans('InstallmentsMenu');
+llxHeader('', $title, '', '', 0, 0, '', '', '', 'mod-installments page-list');
 
 if ($socid > 0) {	// Tab of the thirdparty
 	$societe = new Societe($db);
 	$societe->fetch($socid);
-	print dol_get_fiche_head(societe_prepare_head($societe), 'paymentschedule', $langs->trans('ThirdParty'), -1, 'company');
+	print dol_get_fiche_head(societe_prepare_head($societe), 'installments', $langs->trans('ThirdParty'), -1, 'company');
 	dol_banner_tab($societe, 'socid', '<a href="'.DOL_URL_ROOT.'/societe/list.php?restore_lastsearch_values=1">'.$langs->trans('BackToList').'</a>', ($user->socid ? 0 : 1), 'rowid', 'nom');
 	print dol_get_fiche_end();
 }
@@ -250,19 +250,19 @@ if ($massaction == 'prerecordpayments') {
 		}
 		$questions[] = array('type' => 'select', 'name' => 'accountid', 'label' => $langs->trans('AccountToCredit'), 'values' => $accounts, 'default' => $default);
 	}
-	print $form->formconfirm($_SERVER['PHP_SELF'].'?'.ltrim($param, '&'), $arrayofmassactions[$massaction], $langs->trans('PaymentScheduleConfirmPayments', count($toselect)), 'confirm_recordpayments', $questions, 1, 0, 260, 600, 1);
+	print $form->formconfirm($_SERVER['PHP_SELF'].'?'.ltrim($param, '&'), $arrayofmassactions[$massaction], $langs->trans('InstallmentsConfirmPayments', count($toselect)), 'confirm_recordpayments', $questions, 1, 0, 260, 600, 1);
 }
 if ($massaction == 'precreateinvoices') {
-	print $form->formconfirm($_SERVER['PHP_SELF'].'?'.ltrim($param, '&'), $arrayofmassactions[$massaction], $langs->trans('PaymentScheduleConfirmInvoices', count($toselect)), 'confirm_createinvoices', array(), 1, 0, 200, 500, 1);
+	print $form->formconfirm($_SERVER['PHP_SELF'].'?'.ltrim($param, '&'), $arrayofmassactions[$massaction], $langs->trans('InstallmentsConfirmInvoices', count($toselect)), 'confirm_createinvoices', array(), 1, 0, 200, 500, 1);
 }
 
 $statelabels = array();
 foreach (array_keys($states) as $state) {
-	$statelabels[$state] = $langs->trans('PaymentScheduleState'.ucfirst($state));
+	$statelabels[$state] = $langs->trans('InstallmentsState'.ucfirst($state));
 }
 $moreforfilter = '<div class="divsearchfield">'.$langs->trans('Search').': <input type="text" class="maxwidth150" name="search" value="'.dolPrintHTMLForAttribute($search).'"></div>';
 $moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Status').': '.$form->selectarray('search_state', $statelabels, $search_state, 0, 0, 0, '', 0, 0, 0, '', 'maxwidth150').'</div>';
-$moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Type').': '.$form->selectarray('search_type', array('payment' => $langs->trans('PaymentScheduleToCollect'), 'billing' => $langs->trans('PaymentScheduleToInvoice')), $search_type, 1, 0, 0, '', 0, 0, 0, '', 'maxwidth150').'</div>';
+$moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Type').': '.$form->selectarray('search_type', array('payment' => $langs->trans('InstallmentsToCollect'), 'billing' => $langs->trans('InstallmentsToInvoice')), $search_type, 1, 0, 0, '', 0, 0, 0, '', 'maxwidth150').'</div>';
 $moreforfilter .= '<div class="divsearchfield">'.$langs->trans('PaymentMode').': '.$form->select_types_paiements($search_mode, 'search_mode', 'CRDT', 0, 1, 0, 0, 1, 'maxwidth150', 1).'</div>';
 $moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Date').': '.$form->selectDate($search_date_start ?: -1, 'search_date_start', 0, 0, 1, '', 1, 0).' - '.$form->selectDate($search_date_end ?: -1, 'search_date_end', 0, 0, 1, '', 1, 0).'</div>';
 print '<div class="liste_titre liste_titre_bydiv centpercent">'.$moreforfilter.'</div>';
@@ -271,11 +271,11 @@ print '<div class="div-table-responsive">';
 print '<table class="tagtable nobottomiftotal liste">';
 print '<tr class="liste_titre_filter"><td class="liste_titre" colspan="8"></td>';
 $parameters = array();
-$reshook = $hookmanager->executeHooks('printFieldListOption', $parameters, $paymentschedule, $action); // Note that $action and $object may have been modified by hook
+$reshook = $hookmanager->executeHooks('printFieldListOption', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook
 print $hookmanager->resPrint;
 print '<td class="liste_titre center maxwidthsearch">'.$form->showFilterButtons().'</td></tr>';
 print '<tr class="liste_titre">';
-print_liste_field_titre('PaymentScheduleDueDate', $_SERVER['PHP_SELF'], 'date', '', $param, '', $sortfield, $sortorder);
+print_liste_field_titre('InstallmentsDueDate', $_SERVER['PHP_SELF'], 'date', '', $param, '', $sortfield, $sortorder);
 print_liste_field_titre('Ref', $_SERVER['PHP_SELF'], 'ref', '', $param, '', $sortfield, $sortorder);
 print_liste_field_titre('Customer', $_SERVER['PHP_SELF'], 'socname', '', $param, '', $sortfield, $sortorder);
 print_liste_field_titre('AmountTTC', $_SERVER['PHP_SELF'], 'amount', '', $param, '', $sortfield, $sortorder, 'right ');
@@ -284,7 +284,7 @@ print_liste_field_titre('PaymentMode', $_SERVER['PHP_SELF'], '', '', $param, '',
 print_liste_field_titre('Type', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder);
 print_liste_field_titre('Status', $_SERVER['PHP_SELF'], 'state', '', $param, '', $sortfield, $sortorder);
 $parameters = array('param' => $param, 'sortfield' => $sortfield, 'sortorder' => $sortorder);
-$reshook = $hookmanager->executeHooks('printFieldListTitle', $parameters, $paymentschedule, $action); // Note that $action and $object may have been modified by hook
+$reshook = $hookmanager->executeHooks('printFieldListTitle', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook
 print $hookmanager->resPrint;
 print_liste_field_titre($massactionbutton ? $form->showCheckAddButtons('checkforselect', 1) : '', $_SERVER['PHP_SELF'], '', '', '', '', $sortfield, $sortorder, 'center maxwidthsearch ');
 print '</tr>';
@@ -296,7 +296,7 @@ foreach ($rows as $row) {
 	$societe->name = $row->socname;
 	$societe->client = 1;
 	$code = (string) dol_getIdFromCode($db, $row->mode, 'c_paiement', 'id', 'code', 1);
-	$url = dol_buildpath('/paymentschedule/schedule.php', 1).'?element='.urlencode($row->element).'&id='.$row->fk_element;
+	$url = dol_buildpath('/installments/schedule.php', 1).'?element='.urlencode($row->element).'&id='.$row->fk_element;
 	print '<tr class="oddeven">';
 	print '<td class="nowraponall">'.dol_print_date($row->date, 'day').'</td>';
 	print '<td class="nowraponall"><a href="'.$url.'">'.img_picto('', ($row->element == 'facture' ? 'bill' : ($row->element == 'propal' ? 'propal' : 'order')), 'class="pictofixedwidth"').dolPrintLabel($row->ref).'</a></td>';
@@ -304,11 +304,11 @@ foreach ($rows as $row) {
 	print '<td class="right nowraponall amount">'.price($row->amount, 0, $langs, 1, -1, -1, $conf->currency).'</td>';
 	print '<td class="right nowraponall amount">'.($row->state == 'abandoned' ? '' : price($row->remain, 0, $langs, 1, -1, -1, $conf->currency)).'</td>';
 	print '<td>'.($code && $code != '-1' ? $langs->trans('PaymentType'.$code) : '').'</td>';
-	print '<td>'.$langs->trans($row->billing ? 'PaymentScheduleToInvoice' : 'PaymentScheduleToCollect').'</td>';
-	print '<td class="nowraponall">'.dolGetBadge($langs->trans('PaymentScheduleState'.ucfirst($row->state)), '', $badges[$row->state]);
+	print '<td>'.$langs->trans($row->billing ? 'InstallmentsToInvoice' : 'InstallmentsToCollect').'</td>';
+	print '<td class="nowraponall">'.dolGetBadge($langs->trans('InstallmentsState'.ucfirst($row->state)), '', $badges[$row->state]);
 	print ($row->invoiceref ? ' <a href="'.DOL_URL_ROOT.'/compta/facture/card.php?facid='.$row->invoiceid.'">'.dolPrintLabel($row->invoiceref).'</a>' : '').'</td>';
 	$parameters = array('row' => $row);
-	$reshook = $hookmanager->executeHooks('printFieldListValue', $parameters, $paymentschedule, $action); // Note that $action and $object may have been modified by hook
+	$reshook = $hookmanager->executeHooks('printFieldListValue', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook
 	print $hookmanager->resPrint;
 	print '<td class="nowrap center"><input id="cb'.$row->id.'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$row->id.'"'.(in_array($row->id, $toselect) ? ' checked' : '').'></td>';
 	print '</tr>';

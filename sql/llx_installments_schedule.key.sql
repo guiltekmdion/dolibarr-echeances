@@ -15,4 +15,4 @@
 
 
 -- One schedule per document
-ALTER TABLE llx_paymentschedule ADD UNIQUE INDEX uk_paymentschedule(element, fk_element);
+ALTER TABLE llx_installments_schedule ADD UNIQUE INDEX uk_installments_schedule(element, fk_element);

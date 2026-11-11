@@ -1,5 +1,5 @@
-# Tests the module on Dolibarr 24.0.3 (demo database, PHP 8.1 and 8.3), then builds module_paymentschedule-<version>.zip with the script
-# of the ModuleBuilder (build/buildzip.php): the folder paymentschedule/ inside, the format of Home > Setup > Modules > Deploy/install
+# Tests the module on Dolibarr 24.0.3 (demo database, PHP 8.1 and 8.3), then builds module_installments-<version>.zip with the script
+# of the ModuleBuilder (build/buildzip.php): the folder installments/ inside, the format of Home > Setup > Modules > Deploy/install
 # external app/module. A tag vX.Y.Z, equal to the version of the descriptor, publishes the zip in a GitHub release.
 name: Package
 
@@ -36,7 +36,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          path: dolibarr/htdocs/custom/paymentschedule
+          path: dolibarr/htdocs/custom/installments
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -45,7 +45,7 @@ jobs:
           tools: phpunit:8.5
 
       - name: Check the PHP syntax
-        working-directory: dolibarr/htdocs/custom/paymentschedule
+        working-directory: dolibarr/htdocs/custom/installments
         run: find . -name "*.php" -print0 | xargs -0 -n1 php -l
 
       - name: Load the demo database of Dolibarr 24.0.0
@@ -80,7 +80,7 @@ jobs:
 
       - name: Run the tests of the module
         working-directory: dolibarr
-        run: phpunit -d memory_limit=-1 -c test/phpunit/phpunittest.xml htdocs/custom/paymentschedule/test/phpunit/PaymentScheduleTest.php
+        run: phpunit -d memory_limit=-1 -c test/phpunit/phpunittest.xml htdocs/custom/installments/test/phpunit/InstallmentsTest.php
 
   zip:
     needs: test
@@ -93,19 +93,19 @@ jobs:
 
       - name: Build the zip
         run: |
-          version=$(sed -n "s/.*\$this->version = '\([0-9.]*\)'.*/\1/p" core/modules/modPaymentSchedule.class.php)
+          version=$(sed -n "s/.*\$this->version = '\([0-9.]*\)'.*/\1/p" core/modules/modInstallments.class.php)
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
             echo "::error::The tag $GITHUB_REF_NAME differs from the version $version of the descriptor"; exit 1
           fi
           php build/buildzip.php
           mkdir dist
-          mv "$(php -r 'echo sys_get_temp_dir();')/module_paymentschedule-$version.zip" dist/
-          unzip -l "dist/module_paymentschedule-$version.zip"
+          mv "$(php -r 'echo sys_get_temp_dir();')/module_installments-$version.zip" dist/
+          unzip -l "dist/module_installments-$version.zip"
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: module_paymentschedule-${{ env.VERSION }}
+          name: module_installments-${{ env.VERSION }}
           path: dist/*.zip
 
       - name: Publish the release
@@ -114,4 +114,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/*.zip --title "Payment schedules $VERSION" \
-            --notes "Install: Home > Setup > Modules > Deploy/install external app/module, then send module_paymentschedule-$VERSION.zip. Changes: see ChangeLog.md."
+            --notes "Install: Home > Setup > Modules > Deploy/install external app/module, then send module_installments-$VERSION.zip. Changes: see ChangeLog.md."

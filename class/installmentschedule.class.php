@@ -18,8 +18,8 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/class/paymentschedule.class.php
- * \ingroup paymentschedule
+ * \file    installments/class/installmentschedule.class.php
+ * \ingroup installments
  * \brief   Payment schedules: several expected payments on a customer invoice, or one invoice per installment of a proposal or an order
  */
 
@@ -38,7 +38,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
  * Schedules of the documents and their installments.
  * What is paid is never stored: the payments, credit notes and deposits of an invoice are given to its installments by date, oldest first.
  */
-class PaymentSchedule
+class InstallmentSchedule
 {
 	const STATUS_OPEN = 0;
 	const STATUS_TOCHECK = 1;		// Imported from the module Echeancier: past installment that may have been invoiced by hand
@@ -95,8 +95,8 @@ class PaymentSchedule
 	 */
 	public function fetch($element, $fkelement)
 	{
-		$sql = "SELECT rowid, element, fk_element, billing, invoice_mode, fk_email_template, fk_user_creat FROM ".$this->db->prefix()."paymentschedule";
-		$sql .= " WHERE entity IN (".getEntity('paymentschedule').") AND element = '".$this->db->escape($element)."' AND fk_element = ".((int) $fkelement);
+		$sql = "SELECT rowid, element, fk_element, billing, invoice_mode, fk_email_template, fk_user_creat FROM ".$this->db->prefix()."installments_schedule";
+		$sql .= " WHERE entity IN (".getEntity('installments').") AND element = '".$this->db->escape($element)."' AND fk_element = ".((int) $fkelement);
 		$resql = $this->db->query($sql);
 		if (!$resql) {
 			$this->error = $this->db->lasterror();
@@ -109,7 +109,7 @@ class PaymentSchedule
 		$schedule = (object) array('id' => (int) $obj->rowid, 'element' => (string) $obj->element, 'fk_element' => (int) $obj->fk_element, 'billing' => (int) $obj->billing,
 			'invoice_mode' => (int) $obj->invoice_mode, 'fk_email_template' => (int) $obj->fk_email_template, 'fk_user_creat' => (int) $obj->fk_user_creat, 'lines' => array());
 
-		$sql = "SELECT rowid, rang, date_due, amount, fk_mode_reglement, fk_facture, fk_prelevement_demande, status, note FROM ".$this->db->prefix()."paymentschedule_line";
+		$sql = "SELECT rowid, rang, date_due, amount, fk_mode_reglement, fk_facture, fk_prelevement_demande, status, note FROM ".$this->db->prefix()."installments_line";
 		$sql .= " WHERE fk_schedule = ".((int) $schedule->id).$this->db->order('date_due,rang,rowid', 'ASC,ASC,ASC');
 		$resql = $this->db->query($sql);
 		if (!$resql) {
@@ -141,14 +141,14 @@ class PaymentSchedule
 		$sql .= " f.paye, f.fk_statut as invoicestatus, COALESCE(f.fk_mode_reglement, p.fk_mode_reglement, c.fk_mode_reglement) as docmode, fi.ref as invoiceref,";
 		$sql .= " (SELECT SUM(pf.amount) FROM ".$this->db->prefix()."paiement_facture as pf WHERE pf.fk_facture = f.rowid) as paid,";
 		$sql .= " (SELECT SUM(rc.amount_ttc) FROM ".$this->db->prefix()."societe_remise_except as rc WHERE rc.fk_facture = f.rowid) as discounts";
-		$sql .= " FROM ".$this->db->prefix()."paymentschedule_line as l";
-		$sql .= " INNER JOIN ".$this->db->prefix()."paymentschedule as s ON s.rowid = l.fk_schedule";
+		$sql .= " FROM ".$this->db->prefix()."installments_line as l";
+		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule";
 		$sql .= " LEFT JOIN ".$this->db->prefix()."facture as f ON s.element = 'facture' AND f.rowid = s.fk_element";
 		$sql .= " LEFT JOIN ".$this->db->prefix()."propal as p ON s.element = 'propal' AND p.rowid = s.fk_element";
 		$sql .= " LEFT JOIN ".$this->db->prefix()."commande as c ON s.element = 'commande' AND c.rowid = s.fk_element";
 		$sql .= " INNER JOIN ".$this->db->prefix()."societe as so ON so.rowid = COALESCE(f.fk_soc, p.fk_soc, c.fk_soc)";
 		$sql .= " LEFT JOIN ".$this->db->prefix()."facture as fi ON fi.rowid = l.fk_facture";
-		$sql .= " WHERE s.entity IN (".getEntity('paymentschedule').")";
+		$sql .= " WHERE s.entity IN (".getEntity('installments').")";
 		if (!empty($filters['socid'])) {
 			$sql .= " AND so.rowid = ".((int) $filters['socid']);
 		}
@@ -242,8 +242,8 @@ class PaymentSchedule
 	 */
 	public function fetchTemplates()
 	{
-		$sql = "SELECT rowid, code, label, nb, months, days, first_percent, mode_code FROM ".$this->db->prefix()."c_paymentschedule_template";
-		$sql .= " WHERE entity IN (".getEntity('c_paymentschedule_template').") AND active = 1".$this->db->order('position,label', 'ASC,ASC');
+		$sql = "SELECT rowid, code, label, nb, months, days, first_percent, mode_code FROM ".$this->db->prefix()."c_installments_template";
+		$sql .= " WHERE entity IN (".getEntity('c_installments_template').") AND active = 1".$this->db->order('position,label', 'ASC,ASC');
 		$resql = $this->db->query($sql);
 		if (!$resql) {
 			$this->error = $this->db->lasterror();
@@ -268,7 +268,7 @@ class PaymentSchedule
 	{
 		global $conf, $langs;
 
-		$sql = "SELECT COUNT(rowid) as nb FROM ".$this->db->prefix()."c_paymentschedule_template WHERE entity = ".((int) $conf->entity);
+		$sql = "SELECT COUNT(rowid) as nb FROM ".$this->db->prefix()."c_installments_template WHERE entity = ".((int) $conf->entity);
 		$resql = $this->db->query($sql);
 		if (!$resql) {
 			$this->error = $this->db->lasterror();
@@ -278,11 +278,11 @@ class PaymentSchedule
 		if ($obj && $obj->nb > 0) {
 			return 1;
 		}
-		$langs->load('paymentschedule@paymentschedule');
+		$langs->load('installments@installments');
 		$templates = array(array('3X', 3, 1, 0, 0), array('30-70', 2, 0, 30, 30), array('12M', 12, 1, 0, 0));	// Code, number, months, days, first share
 		foreach ($templates as $i => $template) {	// Labels in the language of the administrator who enables the module
-			$sql = "INSERT INTO ".$this->db->prefix()."c_paymentschedule_template (entity, code, label, nb, months, days, first_percent, position, active)";
-			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($template[0])."', '".$this->db->escape($langs->transnoentitiesnoconv('PaymentScheduleTemplate'.$template[0]))."', ".((int) $template[1]).", ".((int) $template[2]);
+			$sql = "INSERT INTO ".$this->db->prefix()."c_installments_template (entity, code, label, nb, months, days, first_percent, position, active)";
+			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($template[0])."', '".$this->db->escape($langs->transnoentitiesnoconv('InstallmentsTemplate'.$template[0]))."', ".((int) $template[1]).", ".((int) $template[2]);
 			$sql .= ", ".((int) $template[3]).", ".((float) $template[4]).", ".((int) $i + 1).", 1)";
 			if (!$this->db->query($sql)) {
 				$this->error = $this->db->lasterror();
@@ -359,8 +359,8 @@ class PaymentSchedule
 	{
 		global $langs;
 
-		if (!$user->hasRight('paymentschedule', 'write')) {
-			$langs->load('paymentschedule@paymentschedule');
+		if (!$user->hasRight('installments', 'write')) {
+			$langs->load('installments@installments');
 			$this->error = $langs->trans('NotEnoughPermissions');
 			return -1;
 		}
@@ -383,7 +383,7 @@ class PaymentSchedule
 	{
 		global $conf, $langs;
 
-		$langs->load('paymentschedule@paymentschedule');
+		$langs->load('installments@installments');
 		if (!isset(self::ELEMENTS[$object->element])) {
 			$this->error = 'Bad element '.$object->element;
 			return -1;
@@ -394,13 +394,13 @@ class PaymentSchedule
 		$total = 0.0;
 		foreach ($lines as $line) {
 			if (empty($line['date']) || (float) $line['amount'] <= 0) {
-				$this->error = $langs->trans('PaymentScheduleErrorLine');
+				$this->error = $langs->trans('InstallmentsErrorLine');
 				return -1;
 			}
 			$total += (float) $line['amount'];
 		}
 		if (empty($lines) || round($total - (float) $object->total_ttc, $decimals) != 0) {
-			$this->error = $langs->trans('PaymentScheduleErrorTotal', price($total, 0, $langs, 1, -1, -1, $conf->currency), price((float) $object->total_ttc, 0, $langs, 1, -1, -1, $conf->currency));
+			$this->error = $langs->trans('InstallmentsErrorTotal', price($total, 0, $langs, 1, -1, -1, $conf->currency), price((float) $object->total_ttc, 0, $langs, 1, -1, -1, $conf->currency));
 			return -1;
 		}
 
@@ -417,7 +417,7 @@ class PaymentSchedule
 		}
 		foreach ($locked as $id => $old) {	// A paid, invoiced or direct debited installment stays as it is
 			if (!isset($given[$id]) || dol_print_date($given[$id]['date'], 'dayrfc') != dol_print_date($old->date, 'dayrfc') || round((float) $given[$id]['amount'] - $old->amount, $decimals) != 0) {
-				$this->error = $langs->trans('PaymentScheduleErrorLocked', dol_print_date($old->date, 'day'));
+				$this->error = $langs->trans('InstallmentsErrorLocked', dol_print_date($old->date, 'day'));
 				return -1;
 			}
 		}
@@ -425,19 +425,19 @@ class PaymentSchedule
 		$this->db->begin();
 		if (is_object($schedule)) {
 			$id = $schedule->id;
-			$sql = "UPDATE ".$this->db->prefix()."paymentschedule SET billing = ".((int) $billing).", invoice_mode = ".((int) $invoicemode).", fk_email_template = ".((int) $emailtemplate);
+			$sql = "UPDATE ".$this->db->prefix()."installments_schedule SET billing = ".((int) $billing).", invoice_mode = ".((int) $invoicemode).", fk_email_template = ".((int) $emailtemplate);
 			$sql .= " WHERE rowid = ".((int) $id);
-			$sqldel = "DELETE FROM ".$this->db->prefix()."paymentschedule_line WHERE fk_schedule = ".((int) $id);
+			$sqldel = "DELETE FROM ".$this->db->prefix()."installments_line WHERE fk_schedule = ".((int) $id);
 			if (!empty($locked)) {
 				$sqldel .= " AND rowid NOT IN (".$this->db->sanitize(implode(',', array_map('intval', array_keys($locked)))).")";
 			}
 			$ok = ($this->db->query($sql) && $this->db->query($sqldel));
 		} else {
-			$sql = "INSERT INTO ".$this->db->prefix()."paymentschedule (entity, element, fk_element, billing, invoice_mode, fk_email_template, date_creation, fk_user_creat)";
+			$sql = "INSERT INTO ".$this->db->prefix()."installments_schedule (entity, element, fk_element, billing, invoice_mode, fk_email_template, date_creation, fk_user_creat)";
 			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($object->element)."', ".((int) $object->id).", ".((int) $billing).", ".((int) $invoicemode);
 			$sql .= ", ".((int) $emailtemplate).", '".$this->db->idate(dol_now())."', ".((int) $user->id).")";
 			$ok = (bool) $this->db->query($sql);
-			$id = ($ok ? (int) $this->db->last_insert_id($this->db->prefix()."paymentschedule") : 0);
+			$id = ($ok ? (int) $this->db->last_insert_id($this->db->prefix()."installments_schedule") : 0);
 		}
 		$rang = 0;
 		foreach ($lines as $line) {
@@ -446,7 +446,7 @@ class PaymentSchedule
 				break;
 			}
 			if (!empty($line['id']) && isset($locked[$line['id']])) {
-				$ok = (bool) $this->db->query("UPDATE ".$this->db->prefix()."paymentschedule_line SET rang = ".((int) $rang)." WHERE rowid = ".((int) $line['id']));
+				$ok = (bool) $this->db->query("UPDATE ".$this->db->prefix()."installments_line SET rang = ".((int) $rang)." WHERE rowid = ".((int) $line['id']));
 				continue;
 			}
 			$ok = $this->insertLine($id, $rang, (int) $line['date'], (float) $line['amount'], (int) $line['mode'], (string) $line['note']);
@@ -481,7 +481,7 @@ class PaymentSchedule
 	 */
 	private function insertLine($scheduleid, $rang, $date, $amount, $mode, $note, $status = self::STATUS_OPEN, $invoiceid = 0, $importkey = '')
 	{
-		$sql = "INSERT INTO ".$this->db->prefix()."paymentschedule_line (fk_schedule, rang, date_due, amount, fk_mode_reglement, fk_facture, status, note, import_key)";
+		$sql = "INSERT INTO ".$this->db->prefix()."installments_line (fk_schedule, rang, date_due, amount, fk_mode_reglement, fk_facture, status, note, import_key)";
 		$sql .= " VALUES (".((int) $scheduleid).", ".((int) $rang).", '".$this->db->idate($date)."', ".((float) price2num($amount, 'MT')).", ".((int) $mode);
 		$sql .= ", ".($invoiceid > 0 ? (int) $invoiceid : "NULL").", ".((int) $status).", ".($note !== '' ? "'".$this->db->escape($note)."'" : "NULL");
 		$sql .= ", ".($importkey !== '' ? "'".$this->db->escape($importkey)."'" : "NULL").")";
@@ -542,14 +542,14 @@ class PaymentSchedule
 		if (!is_object($schedule)) {
 			return ($schedule < 0 ? -1 : 1);
 		}
-		if (!$force && (!$user->hasRight('paymentschedule', 'write') || !empty($this->getLocked($object, $schedule)))) {
-			$langs->load('paymentschedule@paymentschedule');
-			$this->error = $langs->trans('PaymentScheduleErrorDelete');
+		if (!$force && (!$user->hasRight('installments', 'write') || !empty($this->getLocked($object, $schedule)))) {
+			$langs->load('installments@installments');
+			$this->error = $langs->trans('InstallmentsErrorDelete');
 			return -1;
 		}
 		$this->db->begin();
-		if (!$this->db->query("DELETE FROM ".$this->db->prefix()."paymentschedule_line WHERE fk_schedule = ".((int) $schedule->id))
-			|| !$this->db->query("DELETE FROM ".$this->db->prefix()."paymentschedule WHERE rowid = ".((int) $schedule->id))) {
+		if (!$this->db->query("DELETE FROM ".$this->db->prefix()."installments_line WHERE fk_schedule = ".((int) $schedule->id))
+			|| !$this->db->query("DELETE FROM ".$this->db->prefix()."installments_schedule WHERE rowid = ".((int) $schedule->id))) {
 			$this->error = $this->db->lasterror();
 			$this->db->rollback();
 			return -1;
@@ -684,9 +684,9 @@ class PaymentSchedule
 	{
 		global $conf, $langs;
 
-		$langs->load('paymentschedule@paymentschedule');
+		$langs->load('installments@installments');
 		if (!$schedule->billing || $line->invoiceid || $line->status == self::STATUS_ABANDONED || !isset(self::ELEMENTS[$schedule->element])) {
-			$this->error = $langs->trans('PaymentScheduleErrorNotToInvoice');
+			$this->error = $langs->trans('InstallmentsErrorNotToInvoice');
 			return -1;
 		}
 		$class = self::ELEMENTS[$schedule->element];
@@ -749,7 +749,7 @@ class PaymentSchedule
 		if (!empty($source->thirdparty->default_lang) && $source->thirdparty->default_lang != $langs->defaultlang) {
 			$outputlangs = new Translate('', $conf);
 			$outputlangs->setDefaultLang($source->thirdparty->default_lang);
-			$outputlangs->loadLangs(array('main', 'bills', 'paymentschedule@paymentschedule'));
+			$outputlangs->loadLangs(array('main', 'bills', 'installments@installments'));
 		}
 
 		$invoice = new Facture($this->db);
@@ -766,7 +766,7 @@ class PaymentSchedule
 		$this->db->begin();
 		$invoiceid = $invoice->create($user);
 		$error = ($invoiceid <= 0 ? $invoice->error : '');
-		$label = $outputlangs->transnoentities('PaymentScheduleInvoiceLine', $rank, $nb, $source->ref).($line->note !== '' ? "\n".$line->note : '');
+		$label = $outputlangs->transnoentities('InstallmentsInvoiceLine', $rank, $nb, $source->ref).($line->note !== '' ? "\n".$line->note : '');
 		foreach ($amounts as $key => $amount) {
 			if ($error || $amount == 0) {
 				continue;
@@ -777,10 +777,10 @@ class PaymentSchedule
 			}
 		}
 		if (!$error) {	// The installment is taken in the same transaction: a second run cannot invoice it again
-			$sql = "UPDATE ".$this->db->prefix()."paymentschedule_line SET fk_facture = ".((int) $invoiceid).", status = ".self::STATUS_OPEN;
+			$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_facture = ".((int) $invoiceid).", status = ".self::STATUS_OPEN;
 			$sql .= " WHERE rowid = ".((int) $line->id)." AND fk_facture IS NULL";
 			$resql = $this->db->query($sql);
-			$error = (!$resql ? $this->db->lasterror() : ($this->db->affected_rows($resql) != 1 ? $langs->trans('PaymentScheduleErrorNotToInvoice') : ''));
+			$error = (!$resql ? $this->db->lasterror() : ($this->db->affected_rows($resql) != 1 ? $langs->trans('InstallmentsErrorNotToInvoice') : ''));
 		}
 		if ($error) {
 			$this->db->rollback();
@@ -798,7 +798,7 @@ class PaymentSchedule
 			}
 			$allowed = min($this->getInvoiceModeAllowed($user), $author->id > 0 ? $this->getInvoiceModeAllowed($author) : self::INVOICE_DRAFT);	// The user who runs it too
 			if ($allowed < $mode) {
-				$this->errors[] = $source->ref.': '.$langs->trans('PaymentScheduleErrorModeNotAllowed');
+				$this->errors[] = $source->ref.': '.$langs->trans('InstallmentsErrorModeNotAllowed');
 				$mode = $allowed;
 			}
 		}
@@ -918,7 +918,7 @@ class PaymentSchedule
 		$event = new ActionComm($this->db);
 		$event->type_code = 'AC_OTH_AUTO';
 		$event->code = 'AC_BILL_SENTBYMAIL';
-		$event->label = $langs->transnoentities('PaymentScheduleEventSent', $invoice->ref);
+		$event->label = $langs->transnoentities('InstallmentsEventSent', $invoice->ref);
 		$event->note_private = $content;
 		$event->socid = $invoice->socid;
 		$event->fk_project = (int) $invoice->fk_project;
@@ -951,19 +951,19 @@ class PaymentSchedule
 	{
 		global $conf, $langs, $user;
 
-		$langs->loadLangs(array('bills', 'paymentschedule@paymentschedule'));
+		$langs->loadLangs(array('bills', 'installments@installments'));
 		$this->output = '';
 		$this->errors = array();
 		$today = dol_get_first_hour(dol_now());
-		if (!getDolGlobalInt('PAYMENTSCHEDULE_START_DATE')) {
+		if (!getDolGlobalInt('INSTALLMENTS_START_DATE')) {
 			require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
-			dolibarr_set_const($this->db, 'PAYMENTSCHEDULE_START_DATE', (string) $today, 'chaine', 0, '', $conf->entity);
+			dolibarr_set_const($this->db, 'INSTALLMENTS_START_DATE', (string) $today, 'chaine', 0, '', $conf->entity);
 		}
-		$start = getDolGlobalInt('PAYMENTSCHEDULE_START_DATE', $today);
+		$start = getDolGlobalInt('INSTALLMENTS_START_DATE', $today);
 
-		$sql = "SELECT l.rowid, s.element, s.fk_element FROM ".$this->db->prefix()."paymentschedule_line as l";
-		$sql .= " INNER JOIN ".$this->db->prefix()."paymentschedule as s ON s.rowid = l.fk_schedule";
-		$sql .= " WHERE s.entity IN (".getEntity('paymentschedule').") AND s.billing = 1 AND l.status = ".self::STATUS_OPEN." AND l.fk_facture IS NULL";
+		$sql = "SELECT l.rowid, s.element, s.fk_element FROM ".$this->db->prefix()."installments_line as l";
+		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule";
+		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND s.billing = 1 AND l.status = ".self::STATUS_OPEN." AND l.fk_facture IS NULL";
 		$sql .= " AND l.date_due <= '".$this->db->idate($today)."' AND l.date_due >= '".$this->db->idate(dol_get_first_hour($start))."'";
 		$sql .= $this->db->order('l.date_due,l.rowid', 'ASC,ASC');
 		$resql = $this->db->query($sql);
@@ -994,7 +994,7 @@ class PaymentSchedule
 				$this->errors[] = $this->error;
 			}
 		}
-		$this->output = $langs->trans('PaymentScheduleInvoicesCreated', $nb).(empty($this->errors) ? '' : "\n".implode("\n", $this->errors));
+		$this->output = $langs->trans('InstallmentsInvoicesCreated', $nb).(empty($this->errors) ? '' : "\n".implode("\n", $this->errors));
 
 		return (empty($this->errors) ? 0 : 1);
 	}
@@ -1009,16 +1009,16 @@ class PaymentSchedule
 	{
 		global $langs, $user;
 
-		$langs->loadLangs(array('bills', 'withdrawals', 'paymentschedule@paymentschedule'));
+		$langs->loadLangs(array('bills', 'withdrawals', 'installments@installments'));
 		$this->output = '';
 		$this->errors = array();
-		$limit = dol_time_plus_duree(dol_get_first_hour(dol_now()), getDolGlobalInt('PAYMENTSCHEDULE_DIRECTDEBIT_DAYS', 5), 'd');
+		$limit = dol_time_plus_duree(dol_get_first_hour(dol_now()), getDolGlobalInt('INSTALLMENTS_DIRECTDEBIT_DAYS', 5), 'd');
 		$modeid = (int) dol_getIdFromCode($this->db, 'PRE', 'c_paiement', 'code', 'id', 1);
 
-		$sql = "SELECT DISTINCT s.fk_element FROM ".$this->db->prefix()."paymentschedule_line as l";
-		$sql .= " INNER JOIN ".$this->db->prefix()."paymentschedule as s ON s.rowid = l.fk_schedule AND s.element = 'facture'";
+		$sql = "SELECT DISTINCT s.fk_element FROM ".$this->db->prefix()."installments_line as l";
+		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule AND s.element = 'facture'";
 		$sql .= " INNER JOIN ".$this->db->prefix()."facture as f ON f.rowid = s.fk_element";
-		$sql .= " WHERE s.entity IN (".getEntity('paymentschedule').") AND l.status = ".self::STATUS_OPEN." AND l.date_due <= '".$this->db->idate($limit)."'";
+		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND l.status = ".self::STATUS_OPEN." AND l.date_due <= '".$this->db->idate($limit)."'";
 		$sql .= " AND (l.fk_mode_reglement = ".((int) $modeid)." OR (l.fk_mode_reglement = 0 AND f.fk_mode_reglement = ".((int) $modeid)."))";
 		$sql .= " AND f.fk_statut = ".((int) Facture::STATUS_VALIDATED)." AND f.paye = 0";
 		$sql .= " AND NOT EXISTS (SELECT pd.rowid FROM ".$this->db->prefix()."prelevement_demande as pd WHERE pd.rowid = l.fk_prelevement_demande)";
@@ -1054,7 +1054,7 @@ class PaymentSchedule
 					$this->errors[] = $invoice->ref.': '.$invoice->error;
 					break;
 				}
-				$sql = "UPDATE ".$this->db->prefix()."paymentschedule_line SET fk_prelevement_demande = (SELECT MAX(pd.rowid) FROM ".$this->db->prefix()."prelevement_demande as pd";
+				$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_prelevement_demande = (SELECT MAX(pd.rowid) FROM ".$this->db->prefix()."prelevement_demande as pd";
 				$sql .= " WHERE pd.fk_facture = ".((int) $invoice->id)." AND pd.sourcetype = 'facture') WHERE rowid = ".((int) $line->id);
 				if (!$this->db->query($sql)) {
 					$this->errors[] = $invoice->ref.': '.$this->db->lasterror();
@@ -1063,7 +1063,7 @@ class PaymentSchedule
 				$nb++;
 			}
 		}
-		$this->output = $langs->trans('PaymentScheduleDebitsCreated', $nb).(empty($this->errors) ? '' : "\n".implode("\n", $this->errors));
+		$this->output = $langs->trans('InstallmentsDebitsCreated', $nb).(empty($this->errors) ? '' : "\n".implode("\n", $this->errors));
 
 		return (empty($this->errors) ? 0 : 1);
 	}
@@ -1099,7 +1099,7 @@ class PaymentSchedule
 	{
 		global $langs;
 
-		$langs->loadLangs(array('bills', 'banks', 'paymentschedule@paymentschedule'));
+		$langs->loadLangs(array('bills', 'banks', 'installments@installments'));
 		$this->errors = array();
 		if (!$user->hasRight('facture', 'paiement') || empty($lineids)) {
 			$this->error = $langs->trans('NotEnoughPermissions');
@@ -1119,10 +1119,10 @@ class PaymentSchedule
 				return -1;
 			}
 		}
-		$sql = "SELECT l.rowid, s.fk_element FROM ".$this->db->prefix()."paymentschedule_line as l";
-		$sql .= " INNER JOIN ".$this->db->prefix()."paymentschedule as s ON s.rowid = l.fk_schedule AND s.element = 'facture'";
+		$sql = "SELECT l.rowid, s.fk_element FROM ".$this->db->prefix()."installments_line as l";
+		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule AND s.element = 'facture'";
 		$sql .= " INNER JOIN ".$this->db->prefix()."facture as f ON f.rowid = s.fk_element AND f.entity IN (".getEntity('invoice').")";
-		$sql .= " WHERE s.entity IN (".getEntity('paymentschedule').") AND l.rowid IN (".$this->db->sanitize(implode(',', array_map('intval', $lineids))).")";
+		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND l.rowid IN (".$this->db->sanitize(implode(',', array_map('intval', $lineids))).")";
 		if (!$user->hasRight('societe', 'client', 'voir')) {	// Like the list: a sales representative only pays the invoices of its customers
 			$sql .= " AND EXISTS (SELECT sc.fk_soc FROM ".$this->db->prefix()."societe_commerciaux as sc WHERE sc.fk_soc = f.fk_soc AND sc.fk_user = ".((int) $user->id).")";
 		}
@@ -1161,7 +1161,7 @@ class PaymentSchedule
 			$payment->paiementid = $modeid;
 			$payment->paiementcode = (string) $code;
 			$payment->num_payment = '';
-			$payment->note_private = $langs->transnoentities('PaymentScheduleBulkPayment');
+			$payment->note_private = $langs->transnoentities('InstallmentsBulkPayment');
 			$payment->fk_account = $accountid;
 			$result = $payment->create($user, 1);
 			if ($result > 0 && isModEnabled('bank')) {
@@ -1191,14 +1191,14 @@ class PaymentSchedule
 	{
 		global $langs;
 
-		$langs->load('paymentschedule@paymentschedule');
-		$sql = "SELECT l.rowid, l.fk_facture, s.element, s.fk_element FROM ".$this->db->prefix()."paymentschedule_line as l";
-		$sql .= " INNER JOIN ".$this->db->prefix()."paymentschedule as s ON s.rowid = l.fk_schedule";
-		$sql .= " WHERE s.entity IN (".getEntity('paymentschedule').") AND l.rowid = ".((int) $lineid);
+		$langs->load('installments@installments');
+		$sql = "SELECT l.rowid, l.fk_facture, s.element, s.fk_element FROM ".$this->db->prefix()."installments_line as l";
+		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule";
+		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND l.rowid = ".((int) $lineid);
 		$resql = $this->db->query($sql);
 		$obj = ($resql ? $this->db->fetch_object($resql) : null);
-		if (!$obj || !$user->hasRight('paymentschedule', 'write') || ($invoiceid > 0 && (!empty($obj->fk_facture) || $obj->element == 'facture'))) {
-			$this->error = ($resql ? $langs->trans('PaymentScheduleErrorNotToInvoice') : $this->db->lasterror());
+		if (!$obj || !$user->hasRight('installments', 'write') || ($invoiceid > 0 && (!empty($obj->fk_facture) || $obj->element == 'facture'))) {
+			$this->error = ($resql ? $langs->trans('InstallmentsErrorNotToInvoice') : $this->db->lasterror());
 			return -1;
 		}
 		if ($invoiceid > 0) {
@@ -1207,12 +1207,12 @@ class PaymentSchedule
 			$invoice = new Facture($this->db);
 			if ($source->fetch((int) $obj->fk_element) <= 0 || $invoice->fetch($invoiceid) <= 0 || $invoice->socid != $source->socid
 				|| !in_array((int) $invoice->entity, array_map('intval', explode(',', getEntity('invoice'))))) {
-				$this->error = $langs->trans('PaymentScheduleErrorInvoice');
+				$this->error = $langs->trans('InstallmentsErrorInvoice');
 				return -1;
 			}
-			$sql = "UPDATE ".$this->db->prefix()."paymentschedule_line SET fk_facture = ".((int) $invoiceid).", status = ".self::STATUS_OPEN." WHERE rowid = ".((int) $lineid);
+			$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_facture = ".((int) $invoiceid).", status = ".self::STATUS_OPEN." WHERE rowid = ".((int) $lineid);
 		} else {
-			$sql = "UPDATE ".$this->db->prefix()."paymentschedule_line SET status = ".self::STATUS_ABANDONED." WHERE rowid = ".((int) $lineid)." AND fk_facture IS NULL";
+			$sql = "UPDATE ".$this->db->prefix()."installments_line SET status = ".self::STATUS_ABANDONED." WHERE rowid = ".((int) $lineid)." AND fk_facture IS NULL";
 		}
 		if (!$this->db->query($sql)) {
 			$this->error = $this->db->lasterror();
@@ -1267,7 +1267,7 @@ class PaymentSchedule
 	{
 		global $conf, $langs;
 
-		$langs->load('paymentschedule@paymentschedule');
+		$langs->load('installments@installments');
 		$report = array('schedules' => 0, 'lines' => 0, 'tocheck' => 0, 'skipped' => array(), 'different' => array());
 		if (!$this->hasOldTables()) {
 			return $report;
@@ -1290,19 +1290,19 @@ class PaymentSchedule
 			$element = $types[(int) $old->type] ?? '';
 			$label = 'ech'.$old->id;
 			if (!$element) {
-				$report['skipped'][] = $label.': '.$langs->trans('PaymentScheduleImportUnknownType');
+				$report['skipped'][] = $label.': '.$langs->trans('InstallmentsImportUnknownType');
 				continue;
 			}
 			$class = self::ELEMENTS[$element];
 			$object = new $class($this->db);
 			if ($object->fetch((int) $old->id_element) <= 0) {
-				$report['skipped'][] = $label.': '.$langs->trans('PaymentScheduleImportNoDocument');
+				$report['skipped'][] = $label.': '.$langs->trans('InstallmentsImportNoDocument');
 				continue;
 			}
 			$existing = $this->fetch($element, (int) $object->id);
 			if ($existing !== 0) {	// Already imported, or a schedule made with this module
 				if (is_object($existing)) {
-					$report['skipped'][] = $object->ref.': '.$langs->trans('PaymentScheduleImportExists');
+					$report['skipped'][] = $object->ref.': '.$langs->trans('InstallmentsImportExists');
 				}
 				continue;
 			}
@@ -1327,7 +1327,7 @@ class PaymentSchedule
 				$report['tocheck'] += ($status == self::STATUS_TOCHECK ? 1 : 0);
 			}
 			if (empty($lines)) {
-				$report['skipped'][] = $object->ref.': '.$langs->trans('PaymentScheduleImportNoLine');
+				$report['skipped'][] = $object->ref.': '.$langs->trans('InstallmentsImportNoLine');
 				continue;
 			}
 			if (round($total - (float) $object->total_ttc, getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2)) != 0) {
@@ -1338,11 +1338,11 @@ class PaymentSchedule
 			if ($dryrun) {
 				continue;
 			}
-			$sql = "INSERT INTO ".$this->db->prefix()."paymentschedule (entity, element, fk_element, billing, invoice_mode, fk_email_template, date_creation, fk_user_creat, import_key)";
+			$sql = "INSERT INTO ".$this->db->prefix()."installments_schedule (entity, element, fk_element, billing, invoice_mode, fk_email_template, date_creation, fk_user_creat, import_key)";
 			$sql .= " VALUES (".((int) $object->entity).", '".$this->db->escape($element)."', ".((int) $object->id).", ".$billing.", 0, 0, '".$this->db->idate(dol_now())."'";
 			$sql .= ", ".((int) $user->id).", '".$this->db->escape($label)."')";
 			$ok = (bool) $this->db->query($sql);
-			$id = ($ok ? (int) $this->db->last_insert_id($this->db->prefix()."paymentschedule") : 0);
+			$id = ($ok ? (int) $this->db->last_insert_id($this->db->prefix()."installments_schedule") : 0);
 			foreach ($lines as $rang => $line) {
 				$ok = $ok && $this->insertLine($id, $rang + 1, $line['date'], $line['amount'], (int) $object->mode_reglement_id, $line['note'], $line['status'], $line['invoiceid'], $line['key']);
 			}

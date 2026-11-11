@@ -13,10 +13,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see https://www.gnu.org/licenses/.
 --
--- Schedules of the module PaymentSchedule: one per invoice, proposal or order
+-- Schedules of the module InstallmentSchedule: one per invoice, proposal or order
 
 
-CREATE TABLE llx_paymentschedule(
+CREATE TABLE llx_installments_schedule(
 	rowid integer AUTO_INCREMENT PRIMARY KEY NOT NULL,
 	entity integer DEFAULT 1 NOT NULL,
 	element varchar(32) NOT NULL,					-- facture, propal or commande

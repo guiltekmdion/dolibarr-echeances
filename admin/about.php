@@ -20,9 +20,9 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/admin/about.php
- * \ingroup paymentschedule
- * \brief   About page of module PaymentSchedule.
+ * \file    installments/admin/about.php
+ * \ingroup installments
+ * \brief   About page of module InstallmentSchedule.
  */
 
 // Load Dolibarr environment
@@ -60,7 +60,7 @@ if (!$res) {
 // Libraries
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/functions2.lib.php';
-require_once '../lib/paymentschedule.lib.php';
+require_once '../lib/installments.lib.php';
 
 /**
  * @var Conf $conf
@@ -71,7 +71,7 @@ require_once '../lib/paymentschedule.lib.php';
  */
 
 // Translations
-$langs->loadLangs(array("errors", "admin", "paymentschedule@paymentschedule"));
+$langs->loadLangs(array("errors", "admin", "installments@installments"));
 
 // Access control
 if (!$user->admin) {
@@ -97,9 +97,9 @@ $backtopage = GETPOST('backtopage', 'alpha');
 $form = new Form($db);
 
 $help_url = '';
-$title = "PaymentScheduleSetup";
+$title = "InstallmentsSetup";
 
-llxHeader('', $langs->trans($title), $help_url, '', 0, 0, '', '', '', 'mod-paymentschedule page-admin_about');
+llxHeader('', $langs->trans($title), $help_url, '', 0, 0, '', '', '', 'mod-installments page-admin_about');
 
 // Subheader
 $linkback = '<a href="'.($backtopage ? $backtopage : DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1').'">'.img_picto($langs->trans("BackToModuleList"), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans("BackToModuleList").'</span></a>';
@@ -107,11 +107,11 @@ $linkback = '<a href="'.($backtopage ? $backtopage : DOL_URL_ROOT.'/admin/module
 print load_fiche_titre($langs->trans($title), $linkback, 'title_setup');
 
 // Configuration header
-$head = paymentscheduleAdminPrepareHead();
-print dol_get_fiche_head($head, 'about', $langs->trans($title), 0, 'paymentschedule@paymentschedule');
+$head = installmentsAdminPrepareHead();
+print dol_get_fiche_head($head, 'about', $langs->trans($title), 0, 'installments@installments');
 
-dol_include_once('/paymentschedule/core/modules/modPaymentSchedule.class.php');
-$tmpmodule = new modPaymentSchedule($db);
+dol_include_once('/installments/core/modules/modInstallments.class.php');
+$tmpmodule = new modInstallments($db);
 print $tmpmodule->getDescLong();
 
 // Page end

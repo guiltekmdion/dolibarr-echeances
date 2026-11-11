@@ -18,14 +18,14 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/core/substitutions/functions_paymentschedule.lib.php
- * \ingroup paymentschedule
- * \brief   Key __PAYMENTSCHEDULE__: the installments of an invoice, proposal or order, for its notes, emails and ODT documents
+ * \file    installments/core/substitutions/functions_installments.lib.php
+ * \ingroup installments
+ * \brief   Key __INSTALLMENTS__: the installments of an invoice, proposal or order, for its notes, emails and ODT documents
  */
 
 
 /**
- * Key __PAYMENTSCHEDULE__: one line per installment (date, amount, payment mode). Its description in the editor of the email templates.
+ * Key __INSTALLMENTS__: one line per installment (date, amount, payment mode). Its description in the editor of the email templates.
  *
  * @param	array<string,mixed>		$substitutionarray	Keys to complete
  * @param	Translate				$outputlangs		Language of the output
@@ -33,34 +33,34 @@ declare(strict_types=1);
  * @param	?array<string,mixed>	$parameters			Parameters of the caller
  * @return	void
  */
-function paymentschedule_completesubstitutionarray(&$substitutionarray, $outputlangs, $object, $parameters = null)
+function installments_completesubstitutionarray(&$substitutionarray, $outputlangs, $object, $parameters = null)
 {
 	global $conf, $db;
 
 	if (!is_object($object)) {
-		$outputlangs->load('paymentschedule@paymentschedule');
-		$substitutionarray['__PAYMENTSCHEDULE__'] = $outputlangs->trans('PaymentScheduleKey');
+		$outputlangs->load('installments@installments');
+		$substitutionarray['__INSTALLMENTS__'] = $outputlangs->trans('InstallmentsKey');
 		return;
 	}
-	$substitutionarray['__PAYMENTSCHEDULE__'] = '';
+	$substitutionarray['__INSTALLMENTS__'] = '';
 	if (!in_array($object->element, array('facture', 'propal', 'commande')) || empty($object->id)) {
 		return;
 	}
-	dol_include_once('/paymentschedule/class/paymentschedule.class.php');
-	$paymentschedule = new PaymentSchedule($db);
-	$schedule = $paymentschedule->fetch($object->element, (int) $object->id);
+	dol_include_once('/installments/class/installmentschedule.class.php');
+	$installments = new InstallmentSchedule($db);
+	$schedule = $installments->fetch($object->element, (int) $object->id);
 	if (!is_object($schedule)) {
 		return;
 	}
 	$outputlangs->load('bills');
 	$lines = array();
 	foreach ($schedule->lines as $line) {
-		if ($line->status == PaymentSchedule::STATUS_ABANDONED) {
+		if ($line->status == InstallmentSchedule::STATUS_ABANDONED) {
 			continue;
 		}
 		$code = (string) dol_getIdFromCode($db, $line->mode ?: (int) $object->mode_reglement_id, 'c_paiement', 'id', 'code', 1);
 		$lines[] = dol_print_date($line->date, 'day', false, $outputlangs).' : '.price($line->amount, 0, $outputlangs, 1, -1, -1, $conf->currency)
 			.($code && $code != '-1' ? ' ('.$outputlangs->transnoentitiesnoconv('PaymentType'.$code).')' : '');
 	}
-	$substitutionarray['__PAYMENTSCHEDULE__'] = implode("<br>\n", $lines);	// HTML: the notes and the email templates are HTML by default, the ODT converts it
+	$substitutionarray['__INSTALLMENTS__'] = implode("<br>\n", $lines);	// HTML: the notes and the email templates are HTML by default, the ODT converts it
 }

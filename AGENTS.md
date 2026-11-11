@@ -28,7 +28,7 @@ Every modification must respect:
 ## Expected Architecture
 
 External module structure:
-`htdocs/paymentschedule`
+`htdocs/installments`
 ├── `admin/`
 ├── `class/`
 ├── `core/`
@@ -42,7 +42,7 @@ External module structure:
 └── `tpl/`
 
 Do not explore other directories than the workdir (that contains external modules) and the directory of Dolibarr project (that is in is ~/git/dolibarr). 
-A template of an external module directory content can be found in the `paymentschedule` folder of the Dolibarr project.
+A template of an external module directory content can be found in the `installments` folder of the Dolibarr project.
 
 ---
 
@@ -51,14 +51,14 @@ A template of an external module directory content can be found in the `payments
 Before writing any code, the agent **must**:
 - Search for existing similar functions in `htdocs/core/lib/` and `htdocs/core/class/`
 - Check if the concerned object class extends `CommonObject` and use its built-in methods (fetch, create, update, delete, etc.)
-- Review the module's `modPaymentSchedule.class.php` for declared permissions and constants
+- Review the module's `modInstallments.class.php` for declared permissions and constants
 - Run a search to ensure no equivalent function already exists in the codebase
 
 ---
 
 ## PHP Best Practices
 
-- When writing a **bug fix**, target the lowest compatible PHP version of the module (see `modPaymentSchedule.class.php` for the `phpmin` property).
+- When writing a **bug fix**, target the lowest compatible PHP version of the module (see `modInstallments.class.php` for the `phpmin` property).
 - Respect PSR-12, but **indentations must use Tabs, not Spaces**
 - Write short, readable, and testable functions
 - Avoid side effects
@@ -95,10 +95,10 @@ Before writing any code, the agent **must**:
 ## Internationalisation
 
 - Never hardcode user-facing strings — always use `$langs->trans('Key')`
-- Language files must be placed in `paymentschedule/langs/en_US/` (and other locales as needed)
+- Language files must be placed in `installments/langs/en_US/` (and other locales as needed)
 - All code comments and variables or functions names must be in English.
-- Language key names must use PascalCase (e.g., `PaymentScheduleLabel`, not `monLibelléModule`)
-- Load the language file at the top of the page: `$langs->load('paymentschedule@paymentschedule')`
+- Language key names must use PascalCase (e.g., `InstallmentsLabel`, not `monLibelléModule`)
+- Load the language file at the top of the page: `$langs->load('installments@installments')`
 
 ---
 
@@ -118,7 +118,7 @@ Before writing any code, the agent **must**:
 - Respect Dolibarr UI — no unsolicited redesigns
 - Reuse existing components (buttons, forms, tables) from `htdocs/core/tpl/`
 - No overly complex inline JS
-- Place JavaScript in separate files under `paymentschedule/js/`
+- Place JavaScript in separate files under `installments/js/`
 
 ---
 
@@ -169,7 +169,7 @@ Before any modification, verify:
 - If making or modifying external module, add PHPUnit test files in `yourmoduledir/test/phpunit/`.
 - **One test file per source file under test**: a new case goes into the test file of the class or library file it exercises, as a new method. Create a file only when that source file has no test file yet, and split by direction (export / import) rather than by issue when a file grows past about a thousand lines. The CI reads what a test file loads with `dol_include_once()` and refuses a new file whose source already has one.
 - If you need to validate code change or if it is explicitly requested, you can check code and dev syntax rules by running the following command on modified files (it takes a long time):
-	`phan -k .phan/config.php -B dev/tools/phan/baseline.txt --analyze-twice --minimum-target-php-version 7.2 --exclude-directory-list=dev/tools,paymentschedule/test/,paymentschedule/vendor/ --output-mode=checkstyle filemodified1.php filemodified2.php ...`
+	`phan -k .phan/config.php -B dev/tools/phan/baseline.txt --analyze-twice --minimum-target-php-version 7.2 --exclude-directory-list=dev/tools,installments/test/,installments/vendor/ --output-mode=checkstyle filemodified1.php filemodified2.php ...`
 
 ### Local Dolibarr Online test — Page Access
 

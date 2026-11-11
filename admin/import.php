@@ -18,8 +18,8 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/admin/import.php
- * \ingroup paymentschedule
+ * \file    installments/admin/import.php
+ * \ingroup installments
  * \brief   Import of the schedules of the module Echeancier (Artis Auxilium): preview, then import
  */
 
@@ -57,8 +57,8 @@ if (!$res) {
 
 // Libraries
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
-dol_include_once('/paymentschedule/class/paymentschedule.class.php');
-require_once '../lib/paymentschedule.lib.php';
+dol_include_once('/installments/class/installmentschedule.class.php');
+require_once '../lib/installments.lib.php';
 
 /**
  * @var Conf $conf
@@ -67,15 +67,15 @@ require_once '../lib/paymentschedule.lib.php';
  * @var User $user
  */
 
-$langs->loadLangs(array('admin', 'bills', 'paymentschedule@paymentschedule'));
+$langs->loadLangs(array('admin', 'bills', 'installments@installments'));
 
-if (!isModEnabled('paymentschedule') || !$user->admin) {
+if (!isModEnabled('installments') || !$user->admin) {
 	accessforbidden();
 }
 
 $action = GETPOST('action', 'aZ09');
 $confirm = GETPOST('confirm', 'alpha');
-$paymentschedule = new PaymentSchedule($db);
+$installments = new InstallmentSchedule($db);
 
 
 /*
@@ -83,11 +83,11 @@ $paymentschedule = new PaymentSchedule($db);
  */
 
 if ($action == 'confirm_import' && $confirm == 'yes') {
-	$report = $paymentschedule->import($user, false);
+	$report = $installments->import($user, false);
 	if (!is_array($report)) {
-		setEventMessages($paymentschedule->error, null, 'errors');
+		setEventMessages($installments->error, null, 'errors');
 	} else {
-		setEventMessages($langs->trans('PaymentScheduleImportDone', $report['schedules'], $report['lines'], $report['tocheck']), null);
+		setEventMessages($langs->trans('InstallmentsImportDone', $report['schedules'], $report['lines'], $report['tocheck']), null);
 	}
 	header('Location: '.$_SERVER['PHP_SELF']);
 	exit;
@@ -99,34 +99,34 @@ if ($action == 'confirm_import' && $confirm == 'yes') {
  */
 
 $form = new Form($db);
-$report = $paymentschedule->import($user, true);
+$report = $installments->import($user, true);
 
-llxHeader('', $langs->trans('PaymentScheduleSetup'), '', '', 0, 0, '', '', '', 'mod-paymentschedule page-admin-import');
+llxHeader('', $langs->trans('InstallmentsSetup'), '', '', 0, 0, '', '', '', 'mod-installments page-admin-import');
 
 $linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.img_picto($langs->trans('BackToModuleList'), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans('BackToModuleList').'</span></a>';
-print load_fiche_titre($langs->trans('PaymentScheduleSetup'), $linkback, 'title_setup');
-print dol_get_fiche_head(paymentscheduleAdminPrepareHead(), 'import', $langs->trans('PaymentScheduleSetup'), -1, 'fa-calendar-alt');
+print load_fiche_titre($langs->trans('InstallmentsSetup'), $linkback, 'title_setup');
+print dol_get_fiche_head(installmentsAdminPrepareHead(), 'import', $langs->trans('InstallmentsSetup'), -1, 'fa-calendar-alt');
 
 if ($action == 'import') {
-	print $form->formconfirm($_SERVER['PHP_SELF'], $langs->trans('PaymentScheduleImport'), $langs->trans('PaymentScheduleConfirmImport'), 'confirm_import', '', 0, 1);
+	print $form->formconfirm($_SERVER['PHP_SELF'], $langs->trans('InstallmentsImport'), $langs->trans('InstallmentsConfirmImport'), 'confirm_import', '', 0, 1);
 }
 
-print '<span class="opacitymedium">'.$langs->trans('PaymentScheduleImportHelp').'</span><br><br>';
+print '<span class="opacitymedium">'.$langs->trans('InstallmentsImportHelp').'</span><br><br>';
 if (!is_array($report)) {
-	print info_admin(dolPrintLabel($paymentschedule->error), 0, 0, 'error');
+	print info_admin(dolPrintLabel($installments->error), 0, 0, 'error');
 } else {
 	print '<table class="noborder centpercent">';
-	print '<tr class="liste_titre"><td colspan="2">'.$langs->trans('PaymentScheduleImportPreview').'</td></tr>';
-	print '<tr class="oddeven"><td class="titlefield">'.$langs->trans('PaymentScheduleImportSchedules').'</td><td>'.$report['schedules'].'</td></tr>';
-	print '<tr class="oddeven"><td>'.$langs->trans('PaymentScheduleImportLines').'</td><td>'.$report['lines'].'</td></tr>';
-	print '<tr class="oddeven"><td>'.$langs->trans('PaymentScheduleStateTocheck').'</td><td>'.$report['tocheck'].'</td></tr>';
-	foreach (array('different' => 'PaymentScheduleImportDifferent', 'skipped' => 'PaymentScheduleImportSkipped') as $key => $label) {
+	print '<tr class="liste_titre"><td colspan="2">'.$langs->trans('InstallmentsImportPreview').'</td></tr>';
+	print '<tr class="oddeven"><td class="titlefield">'.$langs->trans('InstallmentsImportSchedules').'</td><td>'.$report['schedules'].'</td></tr>';
+	print '<tr class="oddeven"><td>'.$langs->trans('InstallmentsImportLines').'</td><td>'.$report['lines'].'</td></tr>';
+	print '<tr class="oddeven"><td>'.$langs->trans('InstallmentsStateTocheck').'</td><td>'.$report['tocheck'].'</td></tr>';
+	foreach (array('different' => 'InstallmentsImportDifferent', 'skipped' => 'InstallmentsImportSkipped') as $key => $label) {
 		if (!empty($report[$key])) {
 			print '<tr class="oddeven"><td>'.$langs->trans($label).'</td><td>'.implode('<br>', array_map('dolPrintLabel', $report[$key])).'</td></tr>';
 		}
 	}
 	print '</table>';
-	print '<div class="tabsAction">'.dolGetButtonAction('', $langs->trans('PaymentScheduleImport'), 'default', $_SERVER['PHP_SELF'].'?action=import&token='.newToken(), '', $report['schedules'] > 0).'</div>';
+	print '<div class="tabsAction">'.dolGetButtonAction('', $langs->trans('InstallmentsImport'), 'default', $_SERVER['PHP_SELF'].'?action=import&token='.newToken(), '', $report['schedules'] > 0).'</div>';
 }
 
 print dol_get_fiche_end();

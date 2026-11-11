@@ -1,0 +1,134 @@
+# Copyright (C) 2026		Maxime DION				<m.dion@guiltek.fr>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+#
+# Generic
+#
+ModuleInstallmentsName = Échéances
+ModuleInstallmentsDesc = Une facture payée en plusieurs fois, ou un devis ou une commande facturé en plusieurs fois
+Permission23125501 = Voir les échéanciers
+Permission23125502 = Créer et modifier les échéanciers, facturer leurs échéances
+InstallmentSchedule = Échéancier
+InstallmentsMenu = Échéances
+InstallmentsNone = Pas d'échéancier : le document est attendu en un seul paiement.
+InstallmentsNew = Nouvel échéancier
+InstallmentsDueDate = Échéance
+InstallmentsToCollect = Paiement attendu
+InstallmentsToInvoice = À facturer
+InstallmentsStateOpen = À traiter
+InstallmentsStateAll = Toutes
+InstallmentsStateTodo = À venir
+InstallmentsStateLate = En retard
+InstallmentsStatePaid = Payée
+InstallmentsStateInvoiced = Facturée
+InstallmentsStateTocheck = À vérifier
+InstallmentsStateAbandoned = Abandonnée
+InstallmentsKey = Échéances du document (date, montant, mode de règlement), une par ligne
+
+#
+# Tab of a document
+#
+InstallmentsCalculate = Calculer
+InstallmentsTemplate = Modèle
+InstallmentsCustom = Sur mesure
+InstallmentsFirstDate = première échéance le
+InstallmentsInstallments = échéances
+InstallmentsEvery = tous les
+InstallmentsFirstPercent = part de la première
+InstallmentsLocked = Payée, facturée ou prélevée : cette échéance ne peut plus changer
+InstallmentsBilling = Une facture par échéance
+InstallmentsBillingHelp = Coché : chaque échéance devient une facture à sa date, créée par la tâche planifiée. Non coché : la facture du document est attendue en plusieurs paiements.
+InstallmentsInvoiceMode = Facture d'une échéance
+InstallmentsValidatedAndSent = Validée et envoyée par e-mail
+InstallmentsDelete = Supprimer l'échéancier
+InstallmentsConfirmDelete = Supprimer l'échéancier de ce document ?
+InstallmentsCreateInvoice = Facturer maintenant
+InstallmentsConfirmCreateInvoice = Créer la facture de l'échéance du %s (%s) ? Elle sera : %s.
+InstallmentsInvoiceCreated = Facture de l'échéance créée
+InstallmentsLinkInvoice = Déjà facturée
+InstallmentsConfirmLink = L'échéance du %s a été facturée à la main : choisissez sa facture.
+InstallmentsAbandon = Abandonner
+InstallmentsConfirmAbandon = Abandonner l'échéance du %s ? Elle ne sera jamais facturée.
+InstallmentsDebitRequested = Prélèvement demandé
+InstallmentsDueDateManaged = Cette facture a un échéancier : sa date d'échéance suit la prochaine échéance impayée et elle est recalculée à chaque paiement.
+InstallmentsCoreReminderWarning = La tâche de relance de Dolibarr (Envoi des relances des factures impayées) est active : elle relance à la date de chaque échéance avec tout le reste à payer. Le module Relances relance chaque échéance pour son seul montant.
+InstallmentsSixtyDaysWarning = Entre professionnels en France, le délai de paiement ne peut pas dépasser 60 jours après la date de la facture, ou 45 jours fin de mois si le contrat le prévoit (article L441-10 du Code de commerce). Au-delà, faites une facture par échéance.
+InstallmentsTotalDiffers = Les échéances totalisent %s, le document %s : modifiez l'échéancier.
+
+#
+# List, widget and jobs
+#
+InstallmentsRecordPayments = Enregistrer les paiements
+InstallmentsConfirmPayments = Enregistrer comme reçu le reste à payer des %s échéances sélectionnées, un paiement par facture ? À faire seulement après vérification du relevé bancaire.
+InstallmentsNbPayments = %s paiement(s) enregistré(s)
+InstallmentsBulkPayment = Échéances de l'échéancier
+InstallmentsCreateInvoices = Facturer les échéances
+InstallmentsConfirmInvoices = Créer les factures des %s échéances sélectionnées, comme le prévoit leur échéancier ?
+InstallmentsInvoicesCreated = %s facture(s) d'échéances créée(s)
+InstallmentsDebitsCreated = %s demande(s) de prélèvement créée(s)
+InstallmentsWidget = Échéances : échéances à traiter
+InstallmentsWidgetTitle = Échéances en retard ou attendues ce mois-ci (%s)
+InstallmentsInvoiceJob = Factures des échéances
+InstallmentsInvoiceJobComment = Crée la facture de chaque échéance d'un devis ou d'une commande à sa date (brouillon, validée ou envoyée, comme le prévoit son échéancier). Les échéances antérieures au premier lancement sont facturées à la main.
+InstallmentsDebitJob = Prélèvements des échéances
+InstallmentsDebitJobComment = Crée une demande de prélèvement pour chaque échéance impayée réglée par prélèvement, quelques jours avant sa date.
+InstallmentsInvoiceLine = Échéance %s sur %s de %s
+InstallmentsEventSent = Facture %s envoyée par e-mail (échéancier)
+
+#
+# Setup, dictionary and import
+#
+InstallmentsSetup = Configuration des échéances
+InstallmentsDebitDays = Jours avant la date d'une échéance pour demander son prélèvement
+InstallmentsDebitDaysHelp = La demande part dans le prochain ordre de prélèvement fait par Dolibarr. 5 par défaut.
+InstallmentsStrictCheckInfo = Dolibarr garde une seule demande de prélèvement en attente par facture : l'échéance suivante est demandée une fois la précédente dans un ordre de prélèvement. Mettez WITHDRAW_STRICT_CHECK_AMOUNT à 1 pour autoriser plusieurs demandes partielles.
+InstallmentsTemplatesInfo = Les modèles d'échéancier sont dans %s (Modèles d'échéancier).
+InstallmentsTemplates = Modèles d'échéancier
+InstallmentsTemplate3X = En 3 mensualités
+InstallmentsTemplate30-70 = 30 % puis 70 % à 30 jours
+InstallmentsTemplate12M = 12 mensualités
+InstallmentsHelpNb = Nombre d'échéances
+InstallmentsHelpMonths = Mois entre deux échéances
+InstallmentsHelpDays = Jours entre deux échéances, ajoutés aux mois
+InstallmentsHelpFirstPercent = Part de la première échéance en %, 0 pour des échéances égales
+InstallmentsHelpModeCode = Code du mode de règlement (VIR, PRE, CHQ...), vide pour celui du document
+Nb = Nombre
+First_percent = Première (%)
+Mode_code = Mode de règlement
+InstallmentsImport = Reprise d'Échéancier
+InstallmentsImportHelp = Les échéanciers du module Échéancier (Artis Auxilium) sont copiés, ses tables sont seulement lues. Les échéances passées des devis et commandes sans facture arrivent « À vérifier » : elles ont peut-être été facturées à la main, et la tâche planifiée ne les facture jamais.
+InstallmentsImportPreview = À reprendre
+InstallmentsImportSchedules = Échéanciers
+InstallmentsImportLines = Échéances
+InstallmentsImportDifferent = Total différent du document
+InstallmentsImportSkipped = Laissés de côté
+InstallmentsConfirmImport = Reprendre les échéanciers du module Échéancier ?
+InstallmentsImportDone = %s échéancier(s) et %s échéance(s) repris, %s à vérifier
+InstallmentsImportUnknownType = type de document inconnu
+InstallmentsImportNoDocument = document introuvable
+InstallmentsImportExists = a déjà un échéancier
+InstallmentsImportNoLine = aucune échéance avec un montant
+
+#
+# Errors
+#
+InstallmentsErrorLine = Chaque échéance demande une date et un montant supérieur à zéro
+InstallmentsErrorTotal = Les échéances totalisent %s au lieu de %s
+InstallmentsErrorLocked = L'échéance du %s est payée, facturée ou prélevée : elle doit rester inchangée
+InstallmentsErrorDelete = Une échéance est payée, facturée ou prélevée : l'échéancier ne peut pas être supprimé
+InstallmentsErrorNotToInvoice = Cette échéance n'est pas à facturer
+InstallmentsErrorInvoice = La facture doit exister et appartenir au même client
+InstallmentsErrorModeNotAllowed = L'auteur de l'échéancier n'a pas le droit de valider ou d'envoyer les factures : la facture reste en brouillon ou n'est pas envoyée
+InstallmentsPdfMore = + %s autres échéances

@@ -18,19 +18,19 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/class/actions_paymentschedule.class.php
- * \ingroup paymentschedule
+ * \file    installments/class/actions_installments.class.php
+ * \ingroup installments
  * \brief   Hooks: the schedule of an invoice under the totals of its PDF, and a warning when its due date is edited by hand
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonhookactions.class.php';
-dol_include_once('/paymentschedule/class/paymentschedule.class.php');
+dol_include_once('/installments/class/installmentschedule.class.php');
 
 
 /**
- * Hooks of the module PaymentSchedule
+ * Hooks of the module InstallmentSchedule
  */
-class ActionsPaymentSchedule extends CommonHookActions
+class ActionsInstallments extends CommonHookActions
 {
 	const PDF_MAX_ROWS = 10;	// Rows of the schedule in the PDF, for the room left under the totals
 
@@ -69,10 +69,10 @@ class ActionsPaymentSchedule extends CommonHookActions
 		global $langs;
 
 		if (in_array('invoicecard', explode(':', (string) $parameters['context'])) && in_array($action, array('setpaymentterm', 'setconditions')) && $object instanceof Facture) {
-			$schedule = new PaymentSchedule($this->db);
+			$schedule = new InstallmentSchedule($this->db);
 			if (is_object($schedule->fetch('facture', (int) $object->id))) {
-				$langs->load('paymentschedule@paymentschedule');
-				setEventMessages($langs->trans('PaymentScheduleDueDateManaged'), null, 'warnings');
+				$langs->load('installments@installments');
+				setEventMessages($langs->trans('InstallmentsDueDateManaged'), null, 'warnings');
 			}
 		}
 
@@ -129,7 +129,7 @@ class ActionsPaymentSchedule extends CommonHookActions
 		$pdf->SetTextColor(0, 0, 0);
 		$pdf->SetFont('', 'B', $fontsize - 1);
 		$pdf->SetXY($x, $y);
-		$pdf->MultiCell($width, 4, $outputlangs->transnoentities('PaymentSchedule'), 0, 'L', false);
+		$pdf->MultiCell($width, 4, $outputlangs->transnoentities('InstallmentSchedule'), 0, 'L', false);
 		$pdf->SetFont('', '', $fontsize - 2);
 		foreach ($rows as $row) {
 			$y += 4;
@@ -156,28 +156,28 @@ class ActionsPaymentSchedule extends CommonHookActions
 			return $this->pdfrows[$invoice->id];
 		}
 		$rows = array();
-		$schedule = new PaymentSchedule($this->db);
+		$schedule = new InstallmentSchedule($this->db);
 		$data = $schedule->fetch('facture', (int) $invoice->id);
 		if (is_object($data) && count($data->lines) > 1) {
-			$outputlangs->loadLangs(array('bills', 'paymentschedule@paymentschedule'));
+			$outputlangs->loadLangs(array('bills', 'installments@installments'));
 			$paid = $schedule->allocate($invoice, $data->lines);
 			foreach ($data->lines as $line) {
-				if ($line->status == PaymentSchedule::STATUS_ABANDONED) {
+				if ($line->status == InstallmentSchedule::STATUS_ABANDONED) {
 					continue;
 				}
 				$code = (string) dol_getIdFromCode($this->db, $line->mode ?: (int) $invoice->mode_reglement_id, 'c_paiement', 'id', 'code', 1);
 				$label = dol_print_date($line->date, 'day', false, $outputlangs);
 				$label .= ($code && $code != '-1' ? ' - '.$outputlangs->transnoentitiesnoconv('PaymentType'.$code) : '');
 				$ispaid = ($schedule->getState($data, $line, $paid[$line->id], dol_now()) == 'paid');
-				$label .= ($ispaid ? ' ('.$outputlangs->transnoentitiesnoconv('PaymentScheduleStatePaid').')' : '');
+				$label .= ($ispaid ? ' ('.$outputlangs->transnoentitiesnoconv('InstallmentsStatePaid').')' : '');
 				$rows[] = array('label' => $label, 'amount' => $line->amount, 'paid' => $ispaid);
 			}
 			if (count($rows) > self::PDF_MAX_ROWS) {	// A long schedule: the installments left to pay, the last ones on one line
-				$rows = array_values(array_filter($rows, 'paymentscheduleIsUnpaid'));
+				$rows = array_values(array_filter($rows, 'installmentsIsUnpaid'));
 				if (count($rows) > self::PDF_MAX_ROWS) {
 					$more = array_slice($rows, self::PDF_MAX_ROWS - 1);
 					$rows = array_slice($rows, 0, self::PDF_MAX_ROWS - 1);
-					$rows[] = array('label' => $outputlangs->transnoentitiesnoconv('PaymentSchedulePdfMore', count($more)), 'amount' => array_sum(array_column($more, 'amount')), 'paid' => false);
+					$rows[] = array('label' => $outputlangs->transnoentitiesnoconv('InstallmentsPdfMore', count($more)), 'amount' => array_sum(array_column($more, 'amount')), 'paid' => false);
 				}
 			}
 		}
@@ -194,7 +194,7 @@ class ActionsPaymentSchedule extends CommonHookActions
  * @param	array{paid:bool}	$row	Row
  * @return	bool						True if not paid
  */
-function paymentscheduleIsUnpaid($row)
+function installmentsIsUnpaid($row)
 {
 	return !$row['paid'];
 }

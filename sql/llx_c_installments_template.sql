@@ -13,10 +13,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see https://www.gnu.org/licenses/.
 --
--- Dictionary of the module PaymentSchedule: templates of schedules (Setup > Dictionaries)
+-- Dictionary of the module InstallmentSchedule: templates of schedules (Setup > Dictionaries)
 
 
-CREATE TABLE llx_c_paymentschedule_template(
+CREATE TABLE llx_c_installments_template(
 	rowid integer AUTO_INCREMENT PRIMARY KEY NOT NULL,
 	entity integer DEFAULT 1 NOT NULL,
 	code varchar(16) NOT NULL,

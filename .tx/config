@@ -2,8 +2,8 @@
 host = https://www.transifex.com
 lang_map = uz: uz_UZ
 
-[paymentschedule.paymentschedule]
-file_filter = langs/<lang>/paymentschedule.lang
-source_file = langs/en_US/paymentschedule.lang
+[installments.installments]
+file_filter = langs/<lang>/installments.lang
+source_file = langs/en_US/installments.lang
 source_lang = en_US
 type = MOZILLAPROPERTIES

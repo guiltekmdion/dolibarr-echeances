@@ -14,6 +14,4 @@
 -- along with this program.  If not, see https://www.gnu.org/licenses/.
 
 
-ALTER TABLE llx_paymentschedule_line ADD INDEX idx_paymentschedule_line_fk_schedule(fk_schedule);
-ALTER TABLE llx_paymentschedule_line ADD INDEX idx_paymentschedule_line_date_due(date_due);
-ALTER TABLE llx_paymentschedule_line ADD CONSTRAINT fk_paymentschedule_line_fk_schedule FOREIGN KEY (fk_schedule) REFERENCES llx_paymentschedule(rowid);
+ALTER TABLE llx_c_installments_template ADD UNIQUE INDEX uk_c_installments_template(entity, code);

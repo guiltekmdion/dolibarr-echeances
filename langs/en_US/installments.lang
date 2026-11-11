@@ -1,0 +1,134 @@
+# Copyright (C) 2026		Maxime DION				<m.dion@guiltek.fr>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+#
+# Generic
+#
+ModuleInstallmentsName = Payment schedules
+ModuleInstallmentsDesc = An invoice paid in several installments, or a proposal or an order invoiced in several times
+Permission23125501 = Read payment schedules
+Permission23125502 = Create and modify payment schedules, invoice their installments
+InstallmentSchedule = Payment schedule
+InstallmentsMenu = Payment schedules
+InstallmentsNone = No payment schedule: the document is expected in one payment.
+InstallmentsNew = New payment schedule
+InstallmentsDueDate = Due date
+InstallmentsToCollect = Payment expected
+InstallmentsToInvoice = To invoice
+InstallmentsStateOpen = To process
+InstallmentsStateAll = All
+InstallmentsStateTodo = To come
+InstallmentsStateLate = Late
+InstallmentsStatePaid = Paid
+InstallmentsStateInvoiced = Invoiced
+InstallmentsStateTocheck = To check
+InstallmentsStateAbandoned = Abandoned
+InstallmentsKey = Installments of the document (date, amount, payment mode), one per line
+
+#
+# Tab of a document
+#
+InstallmentsCalculate = Calculate
+InstallmentsTemplate = Template
+InstallmentsCustom = Custom
+InstallmentsFirstDate = first installment on
+InstallmentsInstallments = installments
+InstallmentsEvery = every
+InstallmentsFirstPercent = share of the first one
+InstallmentsLocked = Paid, invoiced or direct debited: this installment can no longer change
+InstallmentsBilling = One invoice per installment
+InstallmentsBillingHelp = Checked: each installment becomes an invoice on its date, made by the scheduled job. Not checked: the invoice of the document is expected in several payments.
+InstallmentsInvoiceMode = Invoice of an installment
+InstallmentsValidatedAndSent = Validated and sent by email
+InstallmentsDelete = Delete the payment schedule
+InstallmentsConfirmDelete = Delete the payment schedule of this document?
+InstallmentsCreateInvoice = Invoice now
+InstallmentsConfirmCreateInvoice = Create the invoice of the installment of %s (%s)? It will be: %s.
+InstallmentsInvoiceCreated = Invoice of the installment created
+InstallmentsLinkInvoice = Already invoiced
+InstallmentsConfirmLink = The installment of %s was invoiced by hand: choose its invoice.
+InstallmentsAbandon = Abandon
+InstallmentsConfirmAbandon = Abandon the installment of %s? It will never be invoiced.
+InstallmentsDebitRequested = Direct debit requested
+InstallmentsDueDateManaged = This invoice has a payment schedule: its due date follows the next unpaid installment and is set again at each payment.
+InstallmentsCoreReminderWarning = The reminder job of Dolibarr (Send reminders of unpaid invoices) is enabled: it sends a reminder at the date of each installment with the whole rest to pay. The module Reminders reminds each installment for its own amount.
+InstallmentsSixtyDaysWarning = Between professionals in France, the payment delay cannot go beyond 60 days after the date of the invoice, or 45 days end of month if the contract says so (article L441-10 of the Code de commerce). Beyond, make one invoice per installment.
+InstallmentsTotalDiffers = The installments total %s, the document %s: modify the payment schedule.
+
+#
+# List, widget and jobs
+#
+InstallmentsRecordPayments = Record the payments
+InstallmentsConfirmPayments = Record as received the rest to pay of the %s selected installments, one payment per invoice? Do it only once the bank statement is checked.
+InstallmentsNbPayments = %s payment(s) recorded
+InstallmentsBulkPayment = Installments of the payment schedule
+InstallmentsCreateInvoices = Invoice the installments
+InstallmentsConfirmInvoices = Create the invoices of the %s selected installments, as set in their payment schedule?
+InstallmentsInvoicesCreated = %s invoice(s) of installments created
+InstallmentsDebitsCreated = %s direct debit request(s) created
+InstallmentsWidget = Payment schedules: installments to process
+InstallmentsWidgetTitle = Installments late or expected this month (%s)
+InstallmentsInvoiceJob = Invoices of the installments
+InstallmentsInvoiceJobComment = Creates the invoice of each installment of a proposal or an order on its date (draft, validated or sent, as set in its payment schedule). The installments due before the first run are invoiced by hand.
+InstallmentsDebitJob = Direct debits of the installments
+InstallmentsDebitJobComment = Creates a direct debit request for each unpaid installment paid by direct debit, some days before its date.
+InstallmentsInvoiceLine = Installment %s of %s of %s
+InstallmentsEventSent = Invoice %s sent by email (payment schedule)
+
+#
+# Setup, dictionary and import
+#
+InstallmentsSetup = Setup of the payment schedules
+InstallmentsDebitDays = Days before the date of an installment to request its direct debit
+InstallmentsDebitDaysHelp = The request goes in the next direct debit order made by Dolibarr. 5 by default.
+InstallmentsStrictCheckInfo = Dolibarr keeps one pending direct debit request per invoice: the next installment is requested once the previous one is in a direct debit order. Set WITHDRAW_STRICT_CHECK_AMOUNT to 1 to allow several partial requests.
+InstallmentsTemplatesInfo = The templates of payment schedules are in %s (Templates of payment schedules).
+InstallmentsTemplates = Templates of payment schedules
+InstallmentsTemplate3X = In 3 monthly installments
+InstallmentsTemplate30-70 = 30% then 70% after 30 days
+InstallmentsTemplate12M = 12 monthly installments
+InstallmentsHelpNb = Number of installments
+InstallmentsHelpMonths = Months between two installments
+InstallmentsHelpDays = Days between two installments, added to the months
+InstallmentsHelpFirstPercent = Share of the first installment in %, 0 for equal installments
+InstallmentsHelpModeCode = Code of the payment mode (VIR, PRE, CHQ...), empty for the one of the document
+Nb = Number
+First_percent = First (%)
+Mode_code = Payment mode
+InstallmentsImport = Import from Echeancier
+InstallmentsImportHelp = The payment schedules of the module Echeancier (Artis Auxilium) are copied, its tables are only read. The past installments of proposals and orders without invoice are imported as "To check": they were maybe invoiced by hand, and the scheduled job never invoices them.
+InstallmentsImportPreview = To import
+InstallmentsImportSchedules = Payment schedules
+InstallmentsImportLines = Installments
+InstallmentsImportDifferent = Total different from the document
+InstallmentsImportSkipped = Left out
+InstallmentsConfirmImport = Import the payment schedules of the module Echeancier?
+InstallmentsImportDone = %s payment schedule(s) and %s installment(s) imported, %s to check
+InstallmentsImportUnknownType = unknown type of document
+InstallmentsImportNoDocument = document not found
+InstallmentsImportExists = already has a payment schedule
+InstallmentsImportNoLine = no installment with an amount
+
+#
+# Errors
+#
+InstallmentsErrorLine = Each installment needs a date and an amount above zero
+InstallmentsErrorTotal = The installments total %s instead of %s
+InstallmentsErrorLocked = The installment of %s is paid, invoiced or direct debited: it must stay unchanged
+InstallmentsErrorDelete = An installment is paid, invoiced or direct debited: the payment schedule cannot be deleted
+InstallmentsErrorNotToInvoice = This installment is not to invoice
+InstallmentsErrorInvoice = The invoice must exist and belong to the same customer
+InstallmentsErrorModeNotAllowed = The author of the payment schedule may not validate or send invoices: the invoice stays a draft or is not sent
+InstallmentsPdfMore = + %s other installments

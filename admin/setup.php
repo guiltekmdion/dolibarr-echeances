@@ -20,9 +20,9 @@
 declare(strict_types=1);
 
 /**
- * \file    paymentschedule/admin/setup.php
- * \ingroup paymentschedule
- * \brief   Setup of the module PaymentSchedule: days of the direct debits, state of the scheduled jobs
+ * \file    installments/admin/setup.php
+ * \ingroup installments
+ * \brief   Setup of the module InstallmentSchedule: days of the direct debits, state of the scheduled jobs
  */
 
 // Load Dolibarr environment
@@ -61,8 +61,8 @@ if (!$res) {
 require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formsetup.class.php';
 require_once DOL_DOCUMENT_ROOT.'/cron/class/cronjob.class.php';
-dol_include_once('/paymentschedule/class/paymentschedule.class.php');
-require_once '../lib/paymentschedule.lib.php';
+dol_include_once('/installments/class/installmentschedule.class.php');
+require_once '../lib/installments.lib.php';
 
 /**
  * @var DoliDB $db
@@ -71,19 +71,19 @@ require_once '../lib/paymentschedule.lib.php';
  * @var User $user
  */
 
-$langs->loadLangs(array('admin', 'bills', 'cron', 'withdrawals', 'paymentschedule@paymentschedule'));
+$langs->loadLangs(array('admin', 'bills', 'cron', 'withdrawals', 'installments@installments'));
 
-if (!isModEnabled('paymentschedule') || !$user->admin) {
+if (!isModEnabled('installments') || !$user->admin) {
 	accessforbidden();
 }
 
 $action = GETPOST('action', 'aZ09');
-$hookmanager->initHooks(array('paymentschedulesetup', 'globalsetup'));
+$hookmanager->initHooks(array('installmentssetup', 'globalsetup'));
 
 $formSetup = new FormSetup($db);
-$item = $formSetup->newItem('PAYMENTSCHEDULE_DIRECTDEBIT_DAYS');
-$item->nameText = $langs->trans('PaymentScheduleDebitDays');
-$item->helpText = $langs->trans('PaymentScheduleDebitDaysHelp');
+$item = $formSetup->newItem('INSTALLMENTS_DIRECTDEBIT_DAYS');
+$item->nameText = $langs->trans('InstallmentsDebitDays');
+$item->helpText = $langs->trans('InstallmentsDebitDaysHelp');
 $item->defaultFieldValue = '5';
 $item->cssClass = 'width50';
 
@@ -99,35 +99,35 @@ include DOL_DOCUMENT_ROOT.'/core/actions_setmoduleoptions.inc.php';
  * View
  */
 
-$paymentschedule = new PaymentSchedule($db);
+$installments = new InstallmentSchedule($db);
 
-llxHeader('', $langs->trans('PaymentScheduleSetup'), '', '', 0, 0, '', '', '', 'mod-paymentschedule page-admin-setup');
+llxHeader('', $langs->trans('InstallmentsSetup'), '', '', 0, 0, '', '', '', 'mod-installments page-admin-setup');
 
 $linkback = '<a href="'.DOL_URL_ROOT.'/admin/modules.php?restore_lastsearch_values=1">'.img_picto($langs->trans('BackToModuleList'), 'back', 'class="pictofixedwidth"').'<span class="hideonsmartphone">'.$langs->trans('BackToModuleList').'</span></a>';
-print load_fiche_titre($langs->trans('PaymentScheduleSetup'), $linkback, 'title_setup');
-print dol_get_fiche_head(paymentscheduleAdminPrepareHead(), 'settings', $langs->trans('PaymentScheduleSetup'), -1, 'fa-calendar-alt');
+print load_fiche_titre($langs->trans('InstallmentsSetup'), $linkback, 'title_setup');
+print dol_get_fiche_head(installmentsAdminPrepareHead(), 'settings', $langs->trans('InstallmentsSetup'), -1, 'fa-calendar-alt');
 
-$jobs = array('createDueInvoices' => 'PaymentScheduleInvoiceJob');
+$jobs = array('createDueInvoices' => 'InstallmentsInvoiceJob');
 if (isModEnabled('prelevement')) {
-	$jobs['createDirectDebits'] = 'PaymentScheduleDebitJob';
+	$jobs['createDirectDebits'] = 'InstallmentsDebitJob';
 }
 foreach ($jobs as $method => $label) {
 	$job = new Cronjob($db);
-	$job->fetch(0, 'PaymentSchedule', $method);
+	$job->fetch(0, 'InstallmentSchedule', $method);
 	if ($job->status != Cronjob::STATUS_ENABLED) {
 		print info_admin($langs->trans('JobMustBeEnabledFirst', $langs->transnoentitiesnoconv($label), '<a href="'.DOL_URL_ROOT.'/cron/list.php">'.$langs->transnoentitiesnoconv('CronList').'</a>'), 0, 0, 'warning');
 	}
 }
-if ($paymentschedule->isCoreReminderJobEnabled()) {
-	print info_admin($langs->trans('PaymentScheduleCoreReminderWarning'), 0, 0, 'warning');
+if ($installments->isCoreReminderJobEnabled()) {
+	print info_admin($langs->trans('InstallmentsCoreReminderWarning'), 0, 0, 'warning');
 }
 if (isModEnabled('prelevement') && !getDolGlobalString('WITHDRAW_STRICT_CHECK_AMOUNT')) {
-	print info_admin($langs->trans('PaymentScheduleStrictCheckInfo'), 0, 0, 'info');
+	print info_admin($langs->trans('InstallmentsStrictCheckInfo'), 0, 0, 'info');
 }
 
 print $formSetup->generateOutput(true);
 
-print '<br>'.info_admin($langs->trans('PaymentScheduleTemplatesInfo', '<a href="'.DOL_URL_ROOT.'/admin/dict.php">'.$langs->transnoentitiesnoconv('Dictionaries').'</a>'), 0, 0, 'info');
+print '<br>'.info_admin($langs->trans('InstallmentsTemplatesInfo', '<a href="'.DOL_URL_ROOT.'/admin/dict.php">'.$langs->transnoentitiesnoconv('Dictionaries').'</a>'), 0, 0, 'info');
 
 print dol_get_fiche_end();
 
