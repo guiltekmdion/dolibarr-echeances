@@ -229,7 +229,7 @@ class InstallmentsTest extends CommonClassTest
 
 		$module = new modInstallments($db);
 
-		$this->assertSame(array('1.0.0', 231255, 'Guiltek', array(8, 1), 1, 1), array($module->version, $module->numero, $module->editor_name, $module->phpmin, $module->module_parts['triggers'], $module->module_parts['substitutions']));
+		$this->assertSame(array('1.1.0', 231255, 'Guiltek', array(8, 1), 1, 1), array($module->version, $module->numero, $module->editor_name, $module->phpmin, $module->module_parts['triggers'], $module->module_parts['substitutions']));
 		$this->assertSame(array('23125501', '23125502'), array($module->rights[0][0], $module->rights[1][0]), 'Not the rights 231251 and 231252 of the module Reminders');
 		$this->assertSame(array(0, 0), array($module->cronjobs[0]['status'], $module->cronjobs[1]['status']));
 		$this->assertSame(array('INSTALLMENTS_START_DATE', 1), array($module->const[0][0], $module->const[0][6]), 'A module enabled again does not invoice the past');
