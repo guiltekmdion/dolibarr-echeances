@@ -148,7 +148,7 @@ if ($reshook < 0) {
 	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
 }
 
-if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_recordpayments' && isset($arrayofmassactions['prerecordpayments']) && !empty($toselect)) {
+if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_recordpayments' && isset($arrayofmassactions['prerecordpayments']) && !empty($toselect)) {	// Test on permission already done: the mass actions of the user
 	$result = $installments->recordPayments($user, $toselect, GETPOSTDATE('paymentdate', '12:00:00', 'tzserver') ?: dol_now(), GETPOSTINT('paymentmode'), GETPOSTINT('accountid'));
 	if ($result < 0) {
 		setEventMessages($installments->error, $installments->errors, 'errors');
@@ -158,7 +158,7 @@ if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_recordpayments' 
 	header('Location: '.$_SERVER['PHP_SELF'].'?'.ltrim($param, '&'));
 	exit;
 }
-if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_createinvoices' && isset($arrayofmassactions['precreateinvoices']) && !empty($toselect)) {
+if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_createinvoices' && isset($arrayofmassactions['precreateinvoices']) && !empty($toselect)) {	// Test on permission already done: the mass actions of the user
 	$nb = 0;
 	$errors = array();
 	$rows = $installments->getInstallments($user, array('type' => 'billing'));

@@ -81,7 +81,7 @@ class InstallmentSchedule
 	public $decimals;
 
 	/**
-	 * @var array<int,array{0:string,1:string}> Payment modes read once: id => code, label
+	 * @var ?array<int,string[]> Payment modes read once: id => code, label
 	 */
 	private $modes;
 
@@ -234,7 +234,7 @@ class InstallmentSchedule
 				$row->status = self::STATUS_ABANDONED;
 			}
 			if (!$row->billing && $row->status != self::STATUS_ABANDONED) {	// Payments, credit notes and deposits of the invoice given by date
-				$left[$row->scheduleid] = $left[$row->scheduleid] ?? ((int) $obj->invoicestatus == Facture::STATUS_DRAFT ? 0.0 : (float) $obj->paid + (float) $obj->discounts);
+				$left[$row->scheduleid] ??= ((int) $obj->invoicestatus == Facture::STATUS_DRAFT ? 0.0 : (float) $obj->paid + (float) $obj->discounts);
 				$row->paid = ($obj->paye ? $row->amount : round(min($row->amount, max(0.0, $left[$row->scheduleid])), $decimals));
 				$left[$row->scheduleid] -= $row->paid;
 			}
@@ -302,7 +302,7 @@ class InstallmentSchedule
 			return $this->generate($total, $template->nb, $template->months, $template->days, $firstdate, $template->first_percent, $template->mode);
 		}
 		$langs->load('installments@installments');
-		$parts = array_values(array_filter(array_map('trim', explode(';', $template->split_rule)), 'strlen'));
+		$parts = array_values(array_diff(array_map('trim', explode(';', $template->split_rule)), array('')));
 		$start = dol_getdate($firstdate);
 		$base = dol_mktime(12, 0, 0, $start['mon'], $start['mday'], $start['year'], 'tzserver');
 		$lines = array();
@@ -344,6 +344,7 @@ class InstallmentSchedule
 	 */
 	public function applyPaymentTermTemplate(User $user, CommonObject $object)
 	{
+		'@phan-var-force Facture|Propal|Commande $object';
 		if (($object instanceof Facture && (int) $object->type != Facture::TYPE_STANDARD) || (float) $object->total_ttc <= 0 || empty($object->cond_reglement_id)) {
 			return 0;
 		}
@@ -809,6 +810,7 @@ class InstallmentSchedule
 			$last = max($last, (int) (is_object($line) ? $line->date : $line['date']));
 		}
 
+		'@phan-var-force Facture|Propal|Commande $object';
 		return $last > dol_time_plus_duree((int) $object->date, 60, 'd');
 	}
 
@@ -916,13 +918,13 @@ class InstallmentSchedule
 		$this->db->begin();
 		$invoiceid = $invoice->create($user);
 		$error = ($invoiceid <= 0 ? $invoice->error : '');
-		$label = $outputlangs->transnoentities('InstallmentsInvoiceLine', $rank, $nb, $source->ref).($line->note !== '' ? "\n".$line->note : '');
+		$desc = $outputlangs->transnoentities('InstallmentsInvoiceLine', (string) $rank, (string) $nb, $source->ref).($line->note !== '' ? "\n".$line->note : '');
 		foreach ($amounts as $key => $amount) {
 			if ($error || $amount == 0) {
 				continue;
 			}
 			list($rate, $code, $type, $localtax1, $localtax2) = explode('|', $key);
-			if ($invoice->addline($label, 0, 1, $rate.($code ? ' ('.$code.')' : ''), $localtax1, $localtax2, 0, 0, '', '', 0, 0, 0, 'TTC', $amount, (int) $type) < 0) {
+			if ($invoice->addline($desc, 0, 1, $rate.($code ? ' ('.$code.')' : ''), (float) $localtax1, (float) $localtax2, 0, 0, '', '', 0, 0, 0, 'TTC', $amount, (int) $type) < 0) {
 				$error = $invoice->error;
 			}
 		}
@@ -1539,7 +1541,7 @@ class InstallmentSchedule
 				continue;
 			}
 			$sql = "INSERT INTO ".$this->db->prefix()."installments_schedule (entity, element, fk_element, billing, invoice_mode, fk_email_template, date_creation, fk_user_creat, import_key)";
-			$sql .= " VALUES (".((int) $object->entity).", '".$this->db->escape($element)."', ".((int) $object->id).", ".$billing.", 0, 0, '".$this->db->idate(dol_now())."'";
+			$sql .= " VALUES (".((int) $object->entity).", '".$this->db->escape($element)."', ".((int) $object->id).", ".((int) $billing).", 0, 0, '".$this->db->idate(dol_now())."'";
 			$sql .= ", ".((int) $user->id).", '".$this->db->escape($label)."')";
 			$ok = (bool) $this->db->query($sql);
 			$id = ($ok ? (int) $this->db->last_insert_id($this->db->prefix()."installments_schedule") : 0);
@@ -1574,10 +1576,10 @@ class InstallmentSchedule
 	 */
 	private function getImportCandidates(CommonObject $object)
 	{
-		$element = $this->db->escape($object->element);
+		'@phan-var-force Propal|Commande $object';
 		$sql = "SELECT f.rowid, f.ref, f.datef, f.total_ttc, (SELECT COUNT(ee.rowid) FROM ".$this->db->prefix()."element_element as ee";
-		$sql .= " WHERE (ee.sourcetype = '".$element."' AND ee.fk_source = ".((int) $object->id)." AND ee.targettype = 'facture' AND ee.fk_target = f.rowid)";
-		$sql .= " OR (ee.targettype = '".$element."' AND ee.fk_target = ".((int) $object->id)." AND ee.sourcetype = 'facture' AND ee.fk_source = f.rowid)) as linked";
+		$sql .= " WHERE (ee.sourcetype = '".$this->db->escape($object->element)."' AND ee.fk_source = ".((int) $object->id)." AND ee.targettype = 'facture' AND ee.fk_target = f.rowid)";
+		$sql .= " OR (ee.targettype = '".$this->db->escape($object->element)."' AND ee.fk_target = ".((int) $object->id)." AND ee.sourcetype = 'facture' AND ee.fk_source = f.rowid)) as linked";
 		$sql .= " FROM ".$this->db->prefix()."facture as f";
 		$sql .= " WHERE f.fk_soc = ".((int) $object->socid)." AND f.entity IN (".getEntity('invoice').") AND f.type = ".((int) Facture::TYPE_STANDARD);
 		$sql .= " AND f.fk_statut IN (".((int) Facture::STATUS_VALIDATED).", ".((int) Facture::STATUS_CLOSED).")";
@@ -1603,7 +1605,7 @@ class InstallmentSchedule
  *
  * @param	array{0:int,1:stdClass,2:int}	$a	Pair (installment, invoice, gap in seconds)
  * @param	array{0:int,1:stdClass,2:int}	$b	Pair
- * @return	int									<0, 0 or >0
+ * @return	int									Negative if $a first, positive if $b first, 0 if equal
  */
 function installmentsComparePairs($a, $b)
 {

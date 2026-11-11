@@ -149,7 +149,8 @@ if (empty($reshook) && $action == 'save' && $permissiontowrite) {
 		$editlines[] = array('id' => GETPOSTINT('lineid'.$n), 'date' => (int) GETPOSTDATE('linedate'.$n, '12:00:00', 'tzserver'), 'amount' => $amount,
 			'mode' => GETPOSTINT('linemode'.$n), 'note' => GETPOST('linenote'.$n, 'alphanohtml'));
 	}
-	array_multisort(array_column($editlines, 'date'), SORT_ASC, $editlines);
+	$dates = array_column($editlines, 'date');
+	array_multisort($dates, SORT_ASC, $editlines);
 	$result = $installments->save($user, $object, $editlines, GETPOSTINT('billing'), GETPOSTINT('invoice_mode'), GETPOSTINT('fk_email_template'));
 	if ($result < 0) {
 		setEventMessages($installments->error, null, 'errors');
@@ -181,7 +182,7 @@ if (empty($reshook) && $action == 'confirm_createinvoice' && $confirm == 'yes' &
 }
 if (empty($reshook) && in_array($action, array('confirm_linkinvoice', 'confirm_abandon')) && $confirm == 'yes' && $permissiontowrite && $schedule
 	&& in_array($lineid, array_column($schedule->lines, 'id'))) {	// Only an installment of this document
-	if ($installments->settle($user, $lineid, ($action == 'confirm_linkinvoice' ? GETPOSTINT('invoiceid') : 0)) < 0) {
+	if ($installments->settle($user, $lineid, ($action == 'confirm_linkinvoice' ? GETPOSTINT('invoiceid') : 0)) < 0) {	// Test on permission already done
 		setEventMessages($installments->error, null, 'errors');
 	} else {
 		setEventMessages($langs->trans('RecordSaved'), null);

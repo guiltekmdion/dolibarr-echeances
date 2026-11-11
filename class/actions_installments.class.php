@@ -99,6 +99,7 @@ class ActionsInstallments extends CommonHookActions
 		if ($invoice instanceof Facture && property_exists($object, 'heightforinfotot')) {
 			$rows = $this->getPdfRows($invoice, $parameters['outputlangs']);
 			if (!empty($rows)) {
+				// @phan-suppress-next-line PhanUndeclaredProperty
 				$object->heightforinfotot += 4 * (count($rows) + 1);
 			}
 		}
@@ -122,11 +123,13 @@ class ActionsInstallments extends CommonHookActions
 			return 0;
 		}
 		$outputlangs = $parameters['outputlangs'];
+		'@phan-var-force Translate $outputlangs';
 		$rows = $this->getPdfRows($invoice, $outputlangs);
 		if (empty($rows)) {
 			return 0;
 		}
 		$pdf = $parameters['pdf'];
+		'@phan-var-force TCPDF $pdf';
 		$fontsize = pdf_getPDFFontSize($outputlangs);
 		$x = 120;	// Columns of the totals of the core models
 		$width = $object->page_largeur - $object->marge_droite - $x;
@@ -167,6 +170,7 @@ class ActionsInstallments extends CommonHookActions
 			return 0;
 		}
 		$outputlangs = $parameters['outputlangs'];
+		'@phan-var-force Translate $outputlangs';
 		$rows = $this->getPdfRows($document, $outputlangs);
 		if (empty($rows)) {
 			return 0;
@@ -235,7 +239,7 @@ class ActionsInstallments extends CommonHookActions
 				if (count($rows) > self::PDF_MAX_ROWS) {
 					$more = array_slice($rows, self::PDF_MAX_ROWS - 1);
 					$rows = array_slice($rows, 0, self::PDF_MAX_ROWS - 1);
-					$rows[] = array('label' => $outputlangs->transnoentitiesnoconv('InstallmentsPdfMore', count($more)), 'amount' => array_sum(array_column($more, 'amount')), 'paid' => false);
+					$rows[] = array('label' => $outputlangs->transnoentitiesnoconv('InstallmentsPdfMore', (string) count($more)), 'amount' => array_sum(array_column($more, 'amount')), 'paid' => false);
 				}
 			}
 		}

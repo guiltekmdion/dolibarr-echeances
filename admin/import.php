@@ -82,7 +82,7 @@ $installments = new InstallmentSchedule($db);
  * Actions
  */
 
-if ($action == 'confirm_import' && $confirm == 'yes') {
+if ($action == 'confirm_import' && $confirm == 'yes') {	// Test on permission already done: administrators only
 	$report = $installments->import($user, false);
 	if (!is_array($report)) {
 		setEventMessages($installments->error, null, 'errors');
