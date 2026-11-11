@@ -344,6 +344,8 @@ class InstallmentSchedule
 	 */
 	public function applyPaymentTermTemplate(User $user, CommonObject $object)
 	{
+		global $langs;
+
 		'@phan-var-force Facture|Propal|Commande $object';
 		if (($object instanceof Facture && (int) $object->type != Facture::TYPE_STANDARD) || (float) $object->total_ttc <= 0 || empty($object->cond_reglement_id)) {
 			return 0;
@@ -369,16 +371,15 @@ class InstallmentSchedule
 				return (is_object($existing) ? 0 : -1);
 			}
 			$lines = $this->generateFromTemplate($template, (float) $object->total_ttc, (int) $object->date);
-			$this->error = (empty($lines) ? $this->error : '');
-			if (!empty($lines) && $this->store($user, $object, $lines, 0, 0, 0) > 0) {
-				return 1;
+			if (empty($lines) || min(array_column($lines, 'amount')) <= 0) {	// A wrong template, an amount too small: said, the validation goes on
+				$langs->load('installments@installments');
+				$this->error = ($this->error ?: $langs->trans('InstallmentsErrorLine'));
+				dol_syslog(__METHOD__.' '.$this->error, LOG_WARNING);
+				setEventMessages($this->error, null, 'warnings');
+				return 0;
 			}
-			if ($this->db->lasterror()) {
-				return -1;
-			}
-			dol_syslog(__METHOD__.' '.$this->error, LOG_WARNING);	// A wrong template, an amount too small: said, the validation goes on
-			setEventMessages($this->error, null, 'warnings');
-			return 0;
+
+			return ($this->store($user, $object, $lines, 0, 0, 0) > 0 ? 1 : -1);
 		}
 
 		return 0;

@@ -203,6 +203,7 @@ class InstallmentsTest extends CommonClassTest
 			"DELETE FROM ".$db->prefix()."commandedet WHERE fk_commande IN (SELECT rowid FROM ".$db->prefix()."commande WHERE fk_soc IN (".$socs."))",
 			"DELETE FROM ".$db->prefix()."commande WHERE fk_soc IN (".$socs.")",
 			"DELETE FROM ".$db->prefix()."societe_rib WHERE fk_soc IN (".$socs.")",
+			"DELETE FROM ".$db->prefix()."societe_account WHERE fk_soc IN (".$socs.")",	// Made by develop for the online payment keys
 			"DELETE FROM ".$db->prefix()."societe WHERE nom LIKE 'PSTEST%'",
 			"DELETE FROM ".$db->prefix()."c_email_templates WHERE label LIKE 'PSTEST%'",
 			"DELETE FROM ".$db->prefix()."c_installments_template WHERE code LIKE 'PSTEST%'",
