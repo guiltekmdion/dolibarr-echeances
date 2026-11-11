@@ -20,7 +20,7 @@ declare(strict_types=1);
 /**
  * \file    installments/class/actions_installments.class.php
  * \ingroup installments
- * \brief   Hooks: the schedule of an invoice under the totals of its PDF, and a warning when its due date is edited by hand
+ * \brief   Hooks: the schedule in the PDF of an invoice (under its totals), of a proposal or an order (in its note), and a warning when the due date of an invoice is edited by hand
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonhookactions.class.php';
@@ -40,9 +40,14 @@ class ActionsInstallments extends CommonHookActions
 	public $db;
 
 	/**
-	 * @var array<int,array<int,array{label:string,amount:float,paid:bool}>> Rows of the PDF by invoice, read by the first hook for the second one
+	 * @var array<string,array<int,array{label:string,amount:float,paid:bool}>> Rows of the PDF by document, read by the first hook for the second one
 	 */
 	private $pdfrows = array();
+
+	/**
+	 * @var array<string,string> Public notes of the proposals and orders while their PDF is made
+	 */
+	private $notes = array();
 
 
 	/**
@@ -144,30 +149,84 @@ class ActionsInstallments extends CommonHookActions
 	}
 
 	/**
-	 * Rows of the schedule of an invoice for its PDF: date, payment mode and state, amount
+	 * PDF of a proposal or an order: its schedule added to its public note while the PDF is made (their models keep no room under
+	 * their totals, the note has its own). Nothing if the note already has the key __INSTALLMENTS__.
 	 *
-	 * @param	Facture		$invoice		Invoice
-	 * @param	Translate	$outputlangs	Language of the PDF
-	 * @return	array<int,array{label:string,amount:float,paid:bool}>	Rows, none for an invoice without schedule of at least 2 installments
+	 * @param	array<string,mixed>	$parameters		Hook metadatas (object = document, outputlangs)
+	 * @param	CommonObject		$object			Document
+	 * @param	?string				$action			Action
+	 * @param	HookManager			$hookmanager	Hook manager
+	 * @return	int									0
 	 */
-	private function getPdfRows(Facture $invoice, Translate $outputlangs)
+	public function beforePDFCreation($parameters, &$object, &$action, $hookmanager)
 	{
-		if (isset($this->pdfrows[$invoice->id])) {
-			return $this->pdfrows[$invoice->id];
+		global $conf;
+
+		$document = $parameters['object'] ?? null;
+		if (!($document instanceof Propal || $document instanceof Commande) || strpos((string) $document->note_public, '__INSTALLMENTS__') !== false) {
+			return 0;
+		}
+		$outputlangs = $parameters['outputlangs'];
+		$rows = $this->getPdfRows($document, $outputlangs);
+		if (empty($rows)) {
+			return 0;
+		}
+		$html = '<strong>'.dol_escape_htmltag($outputlangs->transnoentities('InstallmentSchedule')).'</strong><table>';
+		foreach ($rows as $row) {
+			$html .= '<tr><td>'.dol_escape_htmltag($row['label']).'</td><td align="right">'.price($row['amount'], 0, $outputlangs, 1, -1, -1, $conf->currency).'</td></tr>';
+		}
+		$this->notes[$document->element.$document->id] = (string) $document->note_public;
+		$document->note_public = dol_concatdesc((string) $document->note_public, $html.'</table>');
+
+		return 0;
+	}
+
+	/**
+	 * PDF of a proposal or an order made: its public note back
+	 *
+	 * @param	array<string,mixed>	$parameters		Hook metadatas (object = document)
+	 * @param	CommonDocGenerator	$object			Model of the PDF
+	 * @param	?string				$action			Action
+	 * @param	HookManager			$hookmanager	Hook manager
+	 * @return	int									0
+	 */
+	public function afterPDFCreation($parameters, &$object, &$action, $hookmanager)
+	{
+		$document = $parameters['object'] ?? null;
+		if (is_object($document) && isset($this->notes[$document->element.$document->id])) {
+			$document->note_public = $this->notes[$document->element.$document->id];
+			unset($this->notes[$document->element.$document->id]);
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Rows of the schedule of a document for its PDF: date, payment mode (and state of an invoice), amount
+	 *
+	 * @param	CommonObject	$document		Invoice, proposal or order
+	 * @param	Translate		$outputlangs	Language of the PDF
+	 * @return	array<int,array{label:string,amount:float,paid:bool}>	Rows, none for a document without schedule of at least 2 installments
+	 */
+	private function getPdfRows(CommonObject $document, Translate $outputlangs)
+	{
+		$key = $document->element.$document->id;
+		if (isset($this->pdfrows[$key])) {
+			return $this->pdfrows[$key];
 		}
 		$rows = array();
 		$schedule = new InstallmentSchedule($this->db);
-		$data = $schedule->fetch('facture', (int) $invoice->id);
+		$data = $schedule->fetch($document->element, (int) $document->id);
 		if (is_object($data) && count($data->lines) > 1) {
 			$outputlangs->loadLangs(array('bills', 'installments@installments'));
-			$paid = $schedule->allocate($invoice, $data->lines);
+			$paid = ($document instanceof Facture ? $schedule->allocate($document, $data->lines) : array());
 			foreach ($data->lines as $line) {
 				if ($line->status == InstallmentSchedule::STATUS_ABANDONED) {
 					continue;
 				}
-				$mode = $schedule->getModeLabel($line->mode ?: (int) $invoice->mode_reglement_id, $outputlangs);
+				$mode = $schedule->getModeLabel($line->mode ?: (int) $document->mode_reglement_id, $outputlangs);
 				$label = dol_print_date($line->date, 'day', false, $outputlangs).($mode !== '' ? ' - '.$mode : '');
-				$ispaid = ($schedule->getState($data, $line, $paid[$line->id], dol_now()) == 'paid');
+				$ispaid = ($document instanceof Facture && $schedule->getState($data, $line, $paid[$line->id], dol_now()) == 'paid');
 				$label .= ($ispaid ? ' ('.$outputlangs->transnoentitiesnoconv('InstallmentsStatePaid').')' : '');
 				$rows[] = array('label' => $label, 'amount' => $line->amount, 'paid' => $ispaid);
 			}
@@ -180,7 +239,7 @@ class ActionsInstallments extends CommonHookActions
 				}
 			}
 		}
-		$this->pdfrows[$invoice->id] = $rows;
+		$this->pdfrows[$key] = $rows;
 
 		return $rows;
 	}

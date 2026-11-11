@@ -826,6 +826,43 @@ class InstallmentsTest extends CommonClassTest
 	}
 
 	/**
+	 * PDF of a proposal or an order: its schedule added to its public note while the PDF is made, the note given back after; nothing
+	 * when the note has the key __INSTALLMENTS__ or for a single installment
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsPdfNote()
+	{
+		global $langs;
+
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($this->savdb);
+		$hooks = new ActionsInstallments($this->savdb);
+		$socid = $this->createCustomer('pdfnote');
+		$action = '';
+		$model = null;
+		$proposal = $this->createProposal($socid, array(array(300, 20, 0)));
+		$proposal->note_public = 'Thanks';
+		$this->assertGreaterThan(0, $installments->save($user, $proposal, $installments->generate(360.0, 3, 1, 0, dol_now())), $installments->error);
+		$parameters = array('object' => $proposal, 'outputlangs' => $langs);
+
+		$this->assertSame(0, $hooks->beforePDFCreation($parameters, $proposal, $action, null));
+		$this->assertStringStartsWith('Thanks', $proposal->note_public);
+		$this->assertSame(3, substr_count($proposal->note_public, '<tr>'), 'One row per installment');
+		$this->assertSame(0, $hooks->afterPDFCreation($parameters, $model, $action, null));
+		$this->assertSame('Thanks', $proposal->note_public, 'Given back');
+
+		$proposal->note_public = 'Pay: __INSTALLMENTS__';
+		$hooks->beforePDFCreation($parameters, $proposal, $action, null);
+		$this->assertSame('Pay: __INSTALLMENTS__', $proposal->note_public, 'The key says where');
+
+		$order = $this->createOrder($socid, array(array(100, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $order, $installments->generate(120.0, 1, 1, 0, dol_now())), $installments->error);
+		$hooks->beforePDFCreation(array('object' => $order, 'outputlangs' => $langs), $order, $action, null);
+		$this->assertSame('', (string) $order->note_public, 'One installment: nothing');
+	}
+
+	/**
 	 * Import from the tables of the module Echeancier (temporary copies): expected payments of an invoice; installments of a proposal
 	 * invoiced by the old module, invoiced by hand (found: same customer and amount within 45 days, the invoice linked to the proposal
 	 * first, each invoice once) or not found (to check, past or future); lines without amount left out, missing document, preview
