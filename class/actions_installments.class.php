@@ -165,9 +165,8 @@ class ActionsInstallments extends CommonHookActions
 				if ($line->status == InstallmentSchedule::STATUS_ABANDONED) {
 					continue;
 				}
-				$code = (string) dol_getIdFromCode($this->db, $line->mode ?: (int) $invoice->mode_reglement_id, 'c_paiement', 'id', 'code', 1);
-				$label = dol_print_date($line->date, 'day', false, $outputlangs);
-				$label .= ($code && $code != '-1' ? ' - '.$outputlangs->transnoentitiesnoconv('PaymentType'.$code) : '');
+				$mode = $schedule->getModeLabel($line->mode ?: (int) $invoice->mode_reglement_id, $outputlangs);
+				$label = dol_print_date($line->date, 'day', false, $outputlangs).($mode !== '' ? ' - '.$mode : '');
 				$ispaid = ($schedule->getState($data, $line, $paid[$line->id], dol_now()) == 'paid');
 				$label .= ($ispaid ? ' ('.$outputlangs->transnoentitiesnoconv('InstallmentsStatePaid').')' : '');
 				$rows[] = array('label' => $label, 'amount' => $line->amount, 'paid' => $ispaid);

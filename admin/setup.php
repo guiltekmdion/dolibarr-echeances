@@ -127,7 +127,7 @@ if (isModEnabled('prelevement') && !getDolGlobalString('WITHDRAW_STRICT_CHECK_AM
 
 print $formSetup->generateOutput(true);
 
-print '<br>'.info_admin($langs->trans('InstallmentsTemplatesInfo', '<a href="'.DOL_URL_ROOT.'/admin/dict.php">'.$langs->transnoentitiesnoconv('Dictionaries').'</a>'), 0, 0, 'info');
+print '<br>'.info_admin($langs->trans('InstallmentsTemplatesInfo', '<a href="'.DOL_URL_ROOT.'/admin/dict.php">'.$langs->transnoentitiesnoconv('DictionarySetup').'</a>'), 0, 0, 'info');
 
 print dol_get_fiche_end();
 

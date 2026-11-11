@@ -258,7 +258,7 @@ if ($massaction == 'precreateinvoices') {
 
 $statelabels = array();
 foreach (array_keys($states) as $state) {
-	$statelabels[$state] = $langs->trans('InstallmentsState'.ucfirst($state));
+	$statelabels[$state] = $langs->trans('InstallmentsState'.dol_ucfirst($state));
 }
 $moreforfilter = '<div class="divsearchfield">'.$langs->trans('Search').': <input type="text" class="maxwidth150" name="search" value="'.dolPrintHTMLForAttribute($search).'"></div>';
 $moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Status').': '.$form->selectarray('search_state', $statelabels, $search_state, 0, 0, 0, '', 0, 0, 0, '', 'maxwidth150').'</div>';
@@ -295,7 +295,6 @@ foreach ($rows as $row) {
 	$societe->id = $row->socid;
 	$societe->name = $row->socname;
 	$societe->client = 1;
-	$code = (string) dol_getIdFromCode($db, $row->mode, 'c_paiement', 'id', 'code', 1);
 	$url = dol_buildpath('/installments/schedule.php', 1).'?element='.urlencode($row->element).'&id='.$row->fk_element;
 	print '<tr class="oddeven">';
 	print '<td class="nowraponall">'.dol_print_date($row->date, 'day').'</td>';
@@ -303,9 +302,9 @@ foreach ($rows as $row) {
 	print '<td class="tdoverflowmax200">'.$societe->getNomUrl(1, 'customer').'</td>';
 	print '<td class="right nowraponall amount">'.price($row->amount, 0, $langs, 1, -1, -1, $conf->currency).'</td>';
 	print '<td class="right nowraponall amount">'.($row->state == 'abandoned' ? '' : price($row->remain, 0, $langs, 1, -1, -1, $conf->currency)).'</td>';
-	print '<td>'.($code && $code != '-1' ? $langs->trans('PaymentType'.$code) : '').'</td>';
+	print '<td>'.dolPrintLabel($installments->getModeLabel($row->mode, $langs)).'</td>';
 	print '<td>'.$langs->trans($row->billing ? 'InstallmentsToInvoice' : 'InstallmentsToCollect').'</td>';
-	print '<td class="nowraponall">'.dolGetBadge($langs->trans('InstallmentsState'.ucfirst($row->state)), '', $badges[$row->state]);
+	print '<td class="nowraponall">'.dolGetBadge($langs->trans('InstallmentsState'.dol_ucfirst($row->state)), '', $badges[$row->state]);
 	print ($row->invoiceref ? ' <a href="'.DOL_URL_ROOT.'/compta/facture/card.php?facid='.$row->invoiceid.'">'.dolPrintLabel($row->invoiceref).'</a>' : '').'</td>';
 	$parameters = array('row' => $row);
 	$reshook = $hookmanager->executeHooks('printFieldListValue', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook

@@ -27,10 +27,13 @@ require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
 
 
 /**
- * Triggers of the module InstallmentSchedule. They never stop the action of the core: an error is only logged.
+ * Triggers of the module Installments. An error of the database is returned: the core cancels its action, no schedule is left half written.
  */
 class InterfaceInstallmentsTriggers extends DolibarrTriggers
 {
+	const ACTIONS = array('BILL_VALIDATE', 'BILL_MODIFY', 'BILL_PAYED', 'BILL_UNPAYED', 'PAYMENT_CUSTOMER_CREATE', 'PAYMENT_CUSTOMER_DELETE', 'DISCOUNT_MODIFY',
+		'BILL_DELETE', 'PROPAL_DELETE', 'ORDER_DELETE');
+
 	/**
 	 * Constructor
 	 *
@@ -53,11 +56,11 @@ class InterfaceInstallmentsTriggers extends DolibarrTriggers
 	 * @param	User			$user		Object user
 	 * @param	Translate		$langs		Object langs
 	 * @param	Conf			$conf		Object conf
-	 * @return	int							0 (an error is logged, never returned)
+	 * @return	int							0 if OK, -1 if error
 	 */
 	public function runTrigger($action, $object, User $user, Translate $langs, Conf $conf)
 	{
-		if (!isModEnabled('installments')) {
+		if (!isModEnabled('installments') || !in_array($action, self::ACTIONS)) {
 			return 0;
 		}
 		dol_include_once('/installments/class/installmentschedule.class.php');
@@ -111,7 +114,10 @@ class InterfaceInstallmentsTriggers extends DolibarrTriggers
 				break;
 		}
 		if ($result < 0) {
-			dol_syslog(__METHOD__.' '.$action.' '.$object->id.' '.($schedule->error ?: $this->db->lasterror()), LOG_ERR);
+			$this->error = ($schedule->error ?: $this->db->lasterror());
+			$this->errors[] = $this->error;
+			dol_syslog(__METHOD__.' '.$action.' '.$object->id.' '.$this->error, LOG_ERR);
+			return -1;
 		}
 
 		return 0;
@@ -120,13 +126,17 @@ class InterfaceInstallmentsTriggers extends DolibarrTriggers
 	/**
 	 * Due date of an invoice from its installments
 	 *
-	 * @param	InstallmentSchedule		$schedule	Schedules
+	 * @param	InstallmentSchedule	$schedule	Schedules
 	 * @param	int					$invoiceid	Invoice
 	 * @param	float				$excluded	Amount of a payment being deleted
 	 * @return	int								1 if changed, 0 if nothing to do, -1 if error
 	 */
 	private function sync(InstallmentSchedule $schedule, $invoiceid, $excluded = 0.0)
 	{
+		$data = $schedule->fetch('facture', (int) $invoiceid);	// Most invoices have no schedule: not loaded then
+		if (!is_object($data)) {
+			return $data;
+		}
 		$invoice = new Facture($this->db);
 		if ($invoice->fetch($invoiceid) <= 0) {
 			return -1;

@@ -276,7 +276,7 @@ if ($action == 'edit' && $permissiontowrite) {
 	$templates = $installments->fetchTemplates();
 	$choices = array();
 	foreach (is_array($templates) ? $templates : array() as $template) {
-		$key = 'InstallmentsTemplate'.$template->code;
+		$key = 'InstallmentsTemplate'.str_replace('-', '', $template->code);
 		$choices[$template->id] = ($langs->trans($key) != $key ? $langs->trans($key) : $template->label);
 	}
 	print '<tr class="oddeven"><td class="titlefield">'.$langs->trans('InstallmentsTemplate').'</td><td>'.$form->selectarray('templateid', $choices, GETPOSTINT('templateid'), $langs->trans('InstallmentsCustom'), 0, 0, '', 0, 0, 0, '', 'minwidth200');
@@ -322,7 +322,7 @@ if ($action == 'edit' && $permissiontowrite) {
 		$emailtemplates = array();
 		foreach ($formmail->lines_model as $model) {
 			if (empty($model->private) && (empty($model->module) || isModEnabled($model->module))) {	// The job sees neither the private templates of a user nor those of a disabled module
-				$emailtemplates[(int) $model->id] = $langs->trans(preg_replace('/\(|\)/', '', $model->label)).($model->lang ? ' ('.$model->lang.')' : '');
+				$emailtemplates[(int) $model->id] = $langs->trans(preg_replace('/\(|\)/', '', (string) $model->label)).($model->lang ? ' ('.$model->lang.')' : '');
 			}
 		}
 		print '<table class="border centpercent tableforfield">';
@@ -345,12 +345,11 @@ if ($action == 'edit' && $permissiontowrite) {
 	} else {
 		$paid = ($object instanceof Facture ? $installments->allocate($object, $schedule->lines) : array());
 		$badges = array('paid' => 'status4', 'invoiced' => 'status4', 'late' => 'status8', 'todo' => 'status1', 'tocheck' => 'status3', 'abandoned' => 'status9');
-		foreach ($schedule->lines as $line) {
+		foreach ($schedule->lines as $line) {	// The invoice of an installment read for its link: at most MAX_INSTALLMENTS
 			$state = $installments->getState($schedule, $line, ($paid[$line->id] ?? 0.0), dol_now());
-			$code = (string) dol_getIdFromCode($db, $line->mode ?: (int) $object->mode_reglement_id, 'c_paiement', 'id', 'code', 1);
 			print '<tr class="oddeven"><td class="nowraponall">'.dol_print_date($line->date, 'day').'</td>';
 			print '<td class="right nowraponall amount">'.price($line->amount, 0, $langs, 1, -1, -1, $conf->currency).'</td>';
-			print '<td>'.($code && $code != '-1' ? $langs->trans('PaymentType'.$code) : '').'</td>';
+			print '<td>'.dolPrintLabel($installments->getModeLabel($line->mode ?: (int) $object->mode_reglement_id, $langs)).'</td>';
 			if (!$schedule->billing) {
 				print '<td class="right nowraponall">'.($element == 'facture' ? price($paid[$line->id] ?? 0.0, 0, $langs, 1, -1, -1, $conf->currency) : '').'</td>';
 				print '<td class="right nowraponall">'.($element == 'facture' ? price($line->amount - ($paid[$line->id] ?? 0.0), 0, $langs, 1, -1, -1, $conf->currency) : '').'</td>';
@@ -362,7 +361,7 @@ if ($action == 'edit' && $permissiontowrite) {
 				}
 				print '</td>';
 			}
-			print '<td>'.dolGetBadge($langs->trans('InstallmentsState'.ucfirst($state)), '', $badges[$state]);
+			print '<td>'.dolGetBadge($langs->trans('InstallmentsState'.dol_ucfirst($state)), '', $badges[$state]);
 			print ($line->debitid ? ' '.img_picto($langs->trans('InstallmentsDebitRequested'), 'bank', 'class="paddingleft"') : '').'</td>';
 			print '<td>'.dolPrintLabel($line->note).'</td><td class="right nowraponall">';
 			if ($schedule->billing && !$line->invoiceid && $line->status != InstallmentSchedule::STATUS_ABANDONED) {

@@ -58,9 +58,9 @@ function installments_completesubstitutionarray(&$substitutionarray, $outputlang
 		if ($line->status == InstallmentSchedule::STATUS_ABANDONED) {
 			continue;
 		}
-		$code = (string) dol_getIdFromCode($db, $line->mode ?: (int) $object->mode_reglement_id, 'c_paiement', 'id', 'code', 1);
+		$mode = $installments->getModeLabel($line->mode ?: (int) $object->mode_reglement_id, $outputlangs);
 		$lines[] = dol_print_date($line->date, 'day', false, $outputlangs).' : '.price($line->amount, 0, $outputlangs, 1, -1, -1, $conf->currency)
-			.($code && $code != '-1' ? ' ('.$outputlangs->transnoentitiesnoconv('PaymentType'.$code).')' : '');
+			.($mode !== '' ? ' ('.$mode.')' : '');
 	}
 	$substitutionarray['__INSTALLMENTS__'] = implode("<br>\n", $lines);	// HTML: the notes and the email templates are HTML by default, the ODT converts it
 }

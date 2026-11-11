@@ -120,7 +120,7 @@ if (!is_array($report)) {
 	print '<tr class="oddeven"><td class="titlefield">'.$langs->trans('InstallmentsImportSchedules').'</td><td>'.$report['schedules'].'</td></tr>';
 	print '<tr class="oddeven"><td>'.$langs->trans('InstallmentsImportLines').'</td><td>'.$report['lines'].'</td></tr>';
 	print '<tr class="oddeven"><td>'.$langs->trans('InstallmentsStateTocheck').'</td><td>'.$report['tocheck'].'</td></tr>';
-	foreach (array('different' => 'InstallmentsImportDifferent', 'skipped' => 'InstallmentsImportSkipped') as $key => $label) {
+	foreach (array('matched' => 'InstallmentsImportMatched', 'different' => 'InstallmentsImportDifferent', 'skipped' => 'InstallmentsImportSkipped') as $key => $label) {
 		if (!empty($report[$key])) {
 			print '<tr class="oddeven"><td>'.$langs->trans($label).'</td><td>'.implode('<br>', array_map('dolPrintLabel', $report[$key])).'</td></tr>';
 		}

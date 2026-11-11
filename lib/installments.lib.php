@@ -43,8 +43,9 @@ function installmentsAdminPrepareHead()
 	$head[$h][2] = 'settings';
 	$h++;
 
-	$tables = $db->DDLListTables($db->database_name, $db->prefix().'echeancier');
-	if (is_array($tables) && in_array($db->prefix().'echeancier', $tables)) {
+	dol_include_once('/installments/class/installmentschedule.class.php');
+	$installments = new InstallmentSchedule($db);
+	if ($installments->hasOldTables()) {
 		$head[$h][0] = dolBuildUrl(dol_buildpath("/installments/admin/import.php", 1));
 		$head[$h][1] = $langs->trans("InstallmentsImport");
 		$head[$h][2] = 'import';

@@ -75,6 +75,16 @@ class InstallmentSchedule
 	 */
 	public $output = '';
 
+	/**
+	 * @var int Decimals of the totals (MAIN_MAX_DECIMALS_TOT)
+	 */
+	public $decimals;
+
+	/**
+	 * @var array<int,array{0:string,1:string}> Payment modes read once: id => code, label
+	 */
+	private $modes;
+
 
 	/**
 	 * Constructor
@@ -84,6 +94,48 @@ class InstallmentSchedule
 	public function __construct(DoliDB $db)
 	{
 		$this->db = $db;
+		$this->decimals = getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2);
+	}
+
+	/**
+	 * Label of a payment mode in a language: its translation, else its label in the dictionary (a mode added by the user)
+	 *
+	 * @param	int			$modeid			Payment mode (llx_c_paiement)
+	 * @param	Translate	$outputlangs	Language
+	 * @return	string						Label, '' for none
+	 */
+	public function getModeLabel($modeid, Translate $outputlangs)
+	{
+		if (!isset($this->modes)) {
+			$this->modes = array();
+			$resql = $this->db->query("SELECT id, code, libelle FROM ".$this->db->prefix()."c_paiement WHERE entity IN (".getEntity('c_paiement').")");
+			while ($resql && ($obj = $this->db->fetch_object($resql))) {
+				$this->modes[(int) $obj->id] = array((string) $obj->code, (string) $obj->libelle);
+			}
+		}
+		if (empty($this->modes[(int) $modeid])) {
+			return '';
+		}
+		list($code, $label) = $this->modes[(int) $modeid];
+		$key = 'PaymentType'.$code;
+		$outputlangs->load('bills');
+
+		return ($outputlangs->transnoentitiesnoconv($key) != $key ? $outputlangs->transnoentitiesnoconv($key) : $label);
+	}
+
+	/**
+	 * A proposal is invoiced once signed, an order once validated: never a draft, refused or cancelled one
+	 *
+	 * @param	CommonObject	$source		Proposal or order
+	 * @return	bool						True if its installments can be invoiced
+	 */
+	public function isBillable(CommonObject $source)
+	{
+		if ($source instanceof Propal) {
+			return in_array((int) $source->status, array(Propal::STATUS_SIGNED, Propal::STATUS_BILLED));
+		}
+
+		return ($source instanceof Commande && (int) $source->status >= Commande::STATUS_VALIDATED);
 	}
 
 	/**
@@ -135,12 +187,13 @@ class InstallmentSchedule
 	 */
 	public function getInstallments(User $user, array $filters = array())
 	{
-		$decimals = getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2);
+		$decimals = $this->decimals;
 		$sql = "SELECT l.rowid, l.fk_schedule, l.rang, l.date_due, l.amount, l.fk_mode_reglement, l.fk_facture, l.fk_prelevement_demande, l.status, l.note,";
 		$sql .= " s.element, s.fk_element, s.billing, COALESCE(f.ref, p.ref, c.ref) as ref, so.rowid as socid, so.nom as socname,";
 		$sql .= " f.paye, f.fk_statut as invoicestatus, COALESCE(f.fk_mode_reglement, p.fk_mode_reglement, c.fk_mode_reglement) as docmode, fi.ref as invoiceref,";
 		$sql .= " (SELECT SUM(pf.amount) FROM ".$this->db->prefix()."paiement_facture as pf WHERE pf.fk_facture = f.rowid) as paid,";
-		$sql .= " (SELECT SUM(rc.amount_ttc) FROM ".$this->db->prefix()."societe_remise_except as rc WHERE rc.fk_facture = f.rowid) as discounts";
+		$sql .= " (SELECT SUM(rc.amount_ttc) FROM ".$this->db->prefix()."societe_remise_except as rc INNER JOIN ".$this->db->prefix()."facture as fs ON fs.rowid = rc.fk_facture_source";
+		$sql .= " WHERE rc.fk_facture = f.rowid AND fs.type IN (".((int) Facture::TYPE_CREDIT_NOTE).", ".((int) Facture::TYPE_DEPOSIT).")) as discounts";	// Like allocate()
 		$sql .= " FROM ".$this->db->prefix()."installments_line as l";
 		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule";
 		$sql .= " LEFT JOIN ".$this->db->prefix()."facture as f ON s.element = 'facture' AND f.rowid = s.fk_element";
@@ -149,6 +202,7 @@ class InstallmentSchedule
 		$sql .= " INNER JOIN ".$this->db->prefix()."societe as so ON so.rowid = COALESCE(f.fk_soc, p.fk_soc, c.fk_soc)";
 		$sql .= " LEFT JOIN ".$this->db->prefix()."facture as fi ON fi.rowid = l.fk_facture";
 		$sql .= " WHERE s.entity IN (".getEntity('installments').")";
+		$sql .= " AND (s.element = 'facture' OR s.billing = 1)";	// Expected payments of a proposal or an order: on its tab only, its invoice takes them
 		if (!empty($filters['socid'])) {
 			$sql .= " AND so.rowid = ".((int) $filters['socid']);
 		}
@@ -161,7 +215,7 @@ class InstallmentSchedule
 		if (!$user->hasRight('societe', 'client', 'voir')) {
 			$sql .= " AND EXISTS (SELECT sc.fk_soc FROM ".$this->db->prefix()."societe_commerciaux as sc WHERE sc.fk_soc = so.rowid AND sc.fk_user = ".((int) $user->id).")";
 		}
-		$sql .= $this->db->order('l.fk_schedule,l.date_due,l.rang,l.rowid', 'ASC,ASC,ASC,ASC');
+		$sql .= $this->db->order('l.date_due,l.rang,l.rowid', 'ASC,ASC,ASC');	// By date in each schedule too, for the payments given by date
 		$resql = $this->db->query($sql);
 		if (!$resql) {
 			$this->error = $this->db->lasterror();
@@ -176,6 +230,9 @@ class InstallmentSchedule
 				'invoiceref' => (string) $obj->invoiceref, 'debitid' => (int) $obj->fk_prelevement_demande, 'status' => (int) $obj->status, 'note' => (string) $obj->note,
 				'element' => (string) $obj->element, 'fk_element' => (int) $obj->fk_element, 'billing' => (int) $obj->billing, 'ref' => (string) $obj->ref,
 				'socid' => (int) $obj->socid, 'socname' => (string) $obj->socname, 'paid' => 0.0);
+			if ($row->element == 'facture' && (int) $obj->invoicestatus == Facture::STATUS_ABANDONED) {
+				$row->status = self::STATUS_ABANDONED;
+			}
 			if (!$row->billing && $row->status != self::STATUS_ABANDONED) {	// Payments, credit notes and deposits of the invoice given by date
 				$left[$row->scheduleid] = $left[$row->scheduleid] ?? ((int) $obj->invoicestatus == Facture::STATUS_DRAFT ? 0.0 : (float) $obj->paid + (float) $obj->discounts);
 				$row->paid = ($obj->paye ? $row->amount : round(min($row->amount, max(0.0, $left[$row->scheduleid])), $decimals));
@@ -193,9 +250,6 @@ class InstallmentSchedule
 			}
 			$filtered[] = $row;
 		}
-		usort($filtered, function ($a, $b) {
-			return ($a->date <=> $b->date) ?: ($a->id <=> $b->id);
-		});
 
 		return $filtered;
 	}
@@ -214,22 +268,19 @@ class InstallmentSchedule
 	 */
 	public function generate($total, $nb, $months, $days, $firstdate, $firstpercent = 0.0, $mode = 0)
 	{
-		$decimals = getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2);
+		$decimals = $this->decimals;
 		$nb = min(max(1, $nb), self::MAX_INSTALLMENTS);
 		$first = ($firstpercent > 0 && $nb > 1 ? round($total * $firstpercent / 100, $decimals) : null);
 		$each = round(($total - (float) $first) / ($first === null ? $nb : $nb - 1), $decimals);
 		$start = dol_getdate($firstdate);
+		$base = dol_mktime(12, 0, 0, $start['mon'], $start['mday'], $start['year'], 'tzserver');
 		$lines = array();
 		$sum = 0.0;
 		for ($i = 0; $i < $nb; $i++) {
 			$amount = ($i == $nb - 1 ? round($total - $sum, $decimals) : ($i == 0 && $first !== null ? $first : $each));
 			$sum += $amount;
-			$month = $start['mon'] - 1 + $i * $months;	// A 31st gives the last day of a shorter month, not the beginning of the next one
-			$year = $start['year'] + intdiv($month, 12);
-			$month = $month % 12 + 1;
-			$day = min($start['mday'], (int) date('t', mktime(12, 0, 0, $month, 1, $year)));
-			$date = dol_time_plus_duree(dol_mktime(12, 0, 0, $month, $day, $year, 'tzserver'), $i * $days, 'd');
-			$lines[] = array('date' => $date, 'amount' => $amount, 'mode' => $mode, 'note' => '');
+			$date = dol_time_plus_duree($base, $i * $months, 'm', 1, 'tzserver');	// A 31st gives the last day of a shorter month
+			$lines[] = array('date' => dol_time_plus_duree($date, $i * $days, 'd'), 'amount' => $amount, 'mode' => $mode, 'note' => '');
 		}
 
 		return $lines;
@@ -282,7 +333,7 @@ class InstallmentSchedule
 		$templates = array(array('3X', 3, 1, 0, 0), array('30-70', 2, 0, 30, 30), array('12M', 12, 1, 0, 0));	// Code, number, months, days, first share
 		foreach ($templates as $i => $template) {	// Labels in the language of the administrator who enables the module
 			$sql = "INSERT INTO ".$this->db->prefix()."c_installments_template (entity, code, label, nb, months, days, first_percent, position, active)";
-			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($template[0])."', '".$this->db->escape($langs->transnoentitiesnoconv('InstallmentsTemplate'.$template[0]))."', ".((int) $template[1]).", ".((int) $template[2]);
+			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($template[0])."', '".$this->db->escape($langs->transnoentitiesnoconv('InstallmentsTemplate'.str_replace('-', '', $template[0])))."', ".((int) $template[1]).", ".((int) $template[2]);
 			$sql .= ", ".((int) $template[3]).", ".((float) $template[4]).", ".((int) $i + 1).", 1)";
 			if (!$this->db->query($sql)) {
 				$this->error = $this->db->lasterror();
@@ -304,7 +355,7 @@ class InstallmentSchedule
 	 */
 	public function allocate(Facture $invoice, array $lines, $excluded = 0.0)
 	{
-		$decimals = getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2);
+		$decimals = $this->decimals;
 		$left = (float) $invoice->getSommePaiement() + (float) $invoice->getSumCreditNotesUsed() + (float) $invoice->getSumDepositsUsed() - $excluded;
 		$paid = array();
 		foreach ($lines as $line) {
@@ -336,7 +387,7 @@ class InstallmentSchedule
 		if ($schedule->billing) {
 			return ($line->invoiceid ? 'invoiced' : ($line->status == self::STATUS_TOCHECK ? 'tocheck' : ($line->date < dol_get_first_hour($now) ? 'late' : 'todo')));
 		}
-		if (round($line->amount - $paid, getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2)) <= 0) {
+		if (round($line->amount - $paid, $this->decimals) <= 0) {
 			return 'paid';
 		}
 
@@ -390,8 +441,12 @@ class InstallmentSchedule
 		}
 		$billing = ($object->element == 'facture' ? 0 : (int) (bool) $billing);
 		$invoicemode = min(max(0, (int) $invoicemode), $this->getInvoiceModeAllowed($user));	// Validated or sent only by a user allowed to
-		$decimals = getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2);
+		$decimals = $this->decimals;
 		$total = 0.0;
+		if (count($lines) > self::MAX_INSTALLMENTS) {
+			$this->error = $langs->trans('InstallmentsErrorLine');
+			return -1;
+		}
 		foreach ($lines as $line) {
 			if (empty($line['date']) || (float) $line['amount'] <= 0) {
 				$this->error = $langs->trans('InstallmentsErrorLine');
@@ -434,13 +489,13 @@ class InstallmentSchedule
 			$ok = ($this->db->query($sql) && $this->db->query($sqldel));
 		} else {
 			$sql = "INSERT INTO ".$this->db->prefix()."installments_schedule (entity, element, fk_element, billing, invoice_mode, fk_email_template, date_creation, fk_user_creat)";
-			$sql .= " VALUES (".((int) $conf->entity).", '".$this->db->escape($object->element)."', ".((int) $object->id).", ".((int) $billing).", ".((int) $invoicemode);
+			$sql .= " VALUES (".((int) $object->entity).", '".$this->db->escape($object->element)."', ".((int) $object->id).", ".((int) $billing).", ".((int) $invoicemode);
 			$sql .= ", ".((int) $emailtemplate).", '".$this->db->idate(dol_now())."', ".((int) $user->id).")";
 			$ok = (bool) $this->db->query($sql);
 			$id = ($ok ? (int) $this->db->last_insert_id($this->db->prefix()."installments_schedule") : 0);
 		}
 		$rang = 0;
-		foreach ($lines as $line) {
+		foreach ($lines as $line) {	// One query per installment: at most MAX_INSTALLMENTS
 			$rang++;
 			if (!$ok) {
 				break;
@@ -451,16 +506,15 @@ class InstallmentSchedule
 			}
 			$ok = $this->insertLine($id, $rang, (int) $line['date'], (float) $line['amount'], (int) $line['mode'], (string) $line['note']);
 		}
+		if ($ok && $object instanceof Facture) {
+			$ok = ($this->syncDueDate($object) >= 0);
+		}
 		if (!$ok) {
 			$this->error = ($this->error ?: $this->db->lasterror());
 			$this->db->rollback();
 			return -1;
 		}
 		$this->db->commit();
-
-		if ($object instanceof Facture && $this->syncDueDate($object) < 0) {
-			return -1;
-		}
 
 		return $id;
 	}
@@ -584,7 +638,7 @@ class InstallmentSchedule
 				continue;
 			}
 			$last = $line->date;
-			if (!$next && round($line->amount - $paid[$line->id], getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2)) > 0) {
+			if (!$next && round($line->amount - $paid[$line->id], $this->decimals) > 0) {
 				$next = $line->date;
 			}
 		}
@@ -627,7 +681,7 @@ class InstallmentSchedule
 			$class = self::ELEMENTS[$obj->sourcetype];
 			$source = new $class($this->db);
 			$origin = $this->fetch((string) $obj->sourcetype, (int) $obj->fk_source);
-			if (!is_object($origin) || $origin->billing || $source->fetch((int) $obj->fk_source) <= 0 || round((float) $source->total_ttc - (float) $invoice->total_ttc, getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2)) != 0) {
+			if (!is_object($origin) || $origin->billing || $source->fetch((int) $obj->fk_source) <= 0 || round((float) $source->total_ttc - (float) $invoice->total_ttc, $this->decimals) != 0) {
 				continue;
 			}
 			$lines = array();
@@ -689,22 +743,30 @@ class InstallmentSchedule
 			$this->error = $langs->trans('InstallmentsErrorNotToInvoice');
 			return -1;
 		}
+		if (!$user->hasRight('facture', 'creer')) {
+			$this->error = $langs->trans('NotEnoughPermissions');
+			return -1;
+		}
 		$class = self::ELEMENTS[$schedule->element];
 		$source = new $class($this->db);
 		if ($source->fetch($schedule->fk_element) <= 0) {
 			$this->error = $source->error;
 			return -1;
 		}
+		if (!$this->isBillable($source)) {
+			$this->error = $source->ref.': '.$langs->trans('InstallmentsErrorNotBillable');
+			return -1;
+		}
 		$source->fetch_thirdparty();
-		$decimals = getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2);
+		$decimals = $this->decimals;
 
-		// Amounts of the document by VAT rate and type of line
+		// Amounts of the document by VAT rate, local taxes and type of line
 		$groups = array();
 		foreach ($source->lines as $sourceline) {
 			if (!in_array((int) $sourceline->product_type, array(0, 1)) || (int) $sourceline->special_code == 3) {	// Titles, subtotals and options are not invoiced
 				continue;
 			}
-			$key = price2num($sourceline->tva_tx).'|'.$sourceline->vat_src_code.'|'.((int) $sourceline->product_type);
+			$key = price2num($sourceline->tva_tx).'|'.$sourceline->vat_src_code.'|'.((int) $sourceline->product_type).'|'.price2num($sourceline->localtax1_tx).'|'.price2num($sourceline->localtax2_tx);
 			$groups[$key] = ($groups[$key] ?? 0.0) + (float) $sourceline->total_ttc;
 		}
 		$open = 0;	// Installments left to invoice besides this one
@@ -771,8 +833,8 @@ class InstallmentSchedule
 			if ($error || $amount == 0) {
 				continue;
 			}
-			list($rate, $code, $type) = explode('|', $key);
-			if ($invoice->addline($label, 0, 1, $rate.($code ? ' ('.$code.')' : ''), 0, 0, 0, 0, '', '', 0, 0, 0, 'TTC', $amount, (int) $type) < 0) {
+			list($rate, $code, $type, $localtax1, $localtax2) = explode('|', $key);
+			if ($invoice->addline($label, 0, 1, $rate.($code ? ' ('.$code.')' : ''), $localtax1, $localtax2, 0, 0, '', '', 0, 0, 0, 'TTC', $amount, (int) $type) < 0) {
 				$error = $invoice->error;
 			}
 		}
@@ -809,8 +871,10 @@ class InstallmentSchedule
 				return $invoiceid;
 			}
 			$invoice->fetch($invoiceid);
-			if (!getDolGlobalString('MAIN_DISABLE_PDF_AUTOUPDATE')) {
-				$invoice->generateDocument($invoice->model_pdf ?: getDolGlobalString('FACTURE_ADDON_PDF'), $outputlangs);
+			if ((!getDolGlobalString('MAIN_DISABLE_PDF_AUTOUPDATE') || $mode == self::INVOICE_SENT)	// Never sent without its PDF
+				&& $invoice->generateDocument($invoice->model_pdf ?: getDolGlobalString('FACTURE_ADDON_PDF'), $outputlangs) <= 0) {
+				$this->errors[] = $invoice->ref.': '.$invoice->error;
+				return $invoiceid;
 			}
 			if ($mode == self::INVOICE_SENT && $this->sendInvoice($user, $invoice, $schedule->fk_email_template, $outputlangs) < 0) {
 				$this->errors[] = $invoice->ref.': '.$this->error;
@@ -832,17 +896,17 @@ class InstallmentSchedule
 		if (empty($invoiceids)) {
 			return $billed;
 		}
-		$sql = "SELECT fd.tva_tx, fd.vat_src_code, fd.product_type, SUM(fd.total_ttc) as total FROM ".$this->db->prefix()."facturedet as fd";
+		$sql = "SELECT fd.tva_tx, fd.vat_src_code, fd.product_type, fd.localtax1_tx, fd.localtax2_tx, SUM(fd.total_ttc) as total FROM ".$this->db->prefix()."facturedet as fd";
 		$sql .= " INNER JOIN ".$this->db->prefix()."facture as f ON f.rowid = fd.fk_facture";
 		$sql .= " WHERE f.rowid IN (".$this->db->sanitize(implode(',', array_map('intval', $invoiceids))).") AND f.fk_statut <> ".((int) Facture::STATUS_ABANDONED);
-		$sql .= " GROUP BY fd.tva_tx, fd.vat_src_code, fd.product_type";
+		$sql .= " GROUP BY fd.tva_tx, fd.vat_src_code, fd.product_type, fd.localtax1_tx, fd.localtax2_tx";
 		$resql = $this->db->query($sql);
 		if (!$resql) {
 			$this->error = $this->db->lasterror();
 			return -1;
 		}
 		while ($obj = $this->db->fetch_object($resql)) {
-			$key = price2num($obj->tva_tx).'|'.$obj->vat_src_code.'|'.((int) $obj->product_type);
+			$key = price2num($obj->tva_tx).'|'.$obj->vat_src_code.'|'.((int) $obj->product_type).'|'.price2num($obj->localtax1_tx).'|'.price2num($obj->localtax2_tx);
 			$billed[$key] = ($billed[$key] ?? 0.0) + (float) $obj->total;
 		}
 
@@ -880,6 +944,7 @@ class InstallmentSchedule
 			$to[] = $invoice->thirdparty->email;
 		}
 		if (empty($to)) {
+			$langs->load('mails');
 			$this->error = dolPrintLabel($langs->transnoentitiesnoconv('NoRecipientEmail', $invoice->thirdparty->name));
 			return -1;
 		}
@@ -902,15 +967,18 @@ class InstallmentSchedule
 		$mimes = array();
 		$names = array();
 		$file = DOL_DATA_ROOT.'/'.$invoice->last_main_doc;
-		if ($invoice->last_main_doc && dol_is_file($file)) {
-			$files[] = $file;
-			$mimes[] = dol_mimetype($file);
-			$names[] = dol_basename($file);
+		if (!$invoice->last_main_doc || !dol_is_file($file)) {	// An invoice is never sent without its PDF
+			$langs->load('errors');
+			$this->error = $langs->trans('ErrorFileNotFound', $invoice->ref.'.pdf');
+			return -1;
 		}
+		$files[] = $file;
+		$mimes[] = dol_mimetype($file);
+		$names[] = dol_basename($file);
 		$to = implode(',', array_unique($to));
 		$errorsto = getDolGlobalString('MAIN_MAIL_ERRORS_TO');
 		$mail = new CMailFile($topic, $to, $from, $content, $files, $mimes, $names, $tpl->email_tocc, $tpl->email_tobcc, 0, 1, $errorsto, '', 'inv'.$invoice->id, '', 'standard');
-		if (!$mail->sendfile()) {
+		if (!empty($mail->error) || !$mail->sendfile()) {
 			$this->error = $mail->error;
 			return -1;
 		}
@@ -963,7 +1031,10 @@ class InstallmentSchedule
 
 		$sql = "SELECT l.rowid, s.element, s.fk_element FROM ".$this->db->prefix()."installments_line as l";
 		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule";
+		$sql .= " LEFT JOIN ".$this->db->prefix()."propal as p ON s.element = 'propal' AND p.rowid = s.fk_element";
+		$sql .= " LEFT JOIN ".$this->db->prefix()."commande as c ON s.element = 'commande' AND c.rowid = s.fk_element";
 		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND s.billing = 1 AND l.status = ".self::STATUS_OPEN." AND l.fk_facture IS NULL";
+		$sql .= " AND (p.fk_statut IN (".((int) Propal::STATUS_SIGNED).", ".((int) Propal::STATUS_BILLED).") OR c.fk_statut >= ".((int) Commande::STATUS_VALIDATED).")";	// Like isBillable()
 		$sql .= " AND l.date_due <= '".$this->db->idate($today)."' AND l.date_due >= '".$this->db->idate(dol_get_first_hour($start))."'";
 		$sql .= $this->db->order('l.date_due,l.rowid', 'ASC,ASC');
 		$resql = $this->db->query($sql);
@@ -977,7 +1048,7 @@ class InstallmentSchedule
 			$todo[] = $obj;
 		}
 		$nb = 0;
-		foreach ($todo as $obj) {
+		foreach ($todo as $obj) {	// The installments due today: one invoice each, its queries can not be grouped
 			$schedule = $this->fetch((string) $obj->element, (int) $obj->fk_element);	// Read again: an installment invoiced meanwhile is skipped
 			$line = null;
 			foreach (is_object($schedule) ? $schedule->lines : array() as $candidate) {
@@ -1042,24 +1113,27 @@ class InstallmentSchedule
 			}
 			$paid = $this->allocate($invoice, $schedule->lines);
 			foreach ($schedule->lines as $line) {
-				$remain = round($line->amount - $paid[$line->id], getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2));
+				$remain = round($line->amount - $paid[$line->id], $this->decimals);
 				if ($line->status != self::STATUS_OPEN || $line->date > $limit || $remain <= 0 || ($line->mode ?: (int) $invoice->mode_reglement_id) != $modeid || $this->debitExists($line->debitid)) {
 					continue;
 				}
+				$this->db->begin();	// The request and its installment together
 				$result = $invoice->demande_prelevement($user, (float) $remain);
-				if ($result == 0) {	// A request of this invoice is pending
-					break;
-				}
-				if ($result < 0) {
-					$this->errors[] = $invoice->ref.': '.$invoice->error;
+				if ($result <= 0) {	// 0: a request of this invoice is pending
+					$this->db->rollback();
+					if ($result < 0) {
+						$this->errors[] = $invoice->ref.': '.$invoice->error;
+					}
 					break;
 				}
 				$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_prelevement_demande = (SELECT MAX(pd.rowid) FROM ".$this->db->prefix()."prelevement_demande as pd";
 				$sql .= " WHERE pd.fk_facture = ".((int) $invoice->id)." AND pd.sourcetype = 'facture') WHERE rowid = ".((int) $line->id);
 				if (!$this->db->query($sql)) {
 					$this->errors[] = $invoice->ref.': '.$this->db->lasterror();
+					$this->db->rollback();
 					break;
 				}
+				$this->db->commit();
 				$nb++;
 			}
 		}
@@ -1205,8 +1279,12 @@ class InstallmentSchedule
 			$class = self::ELEMENTS[$obj->element];
 			$source = new $class($this->db);
 			$invoice = new Facture($this->db);
+			$sqlused = "SELECT COUNT(rowid) as nb FROM ".$this->db->prefix()."installments_line WHERE fk_facture = ".((int) $invoiceid);
+			$resused = $this->db->query($sqlused);
+			$used = ($resused ? $this->db->fetch_object($resused) : null);
 			if ($source->fetch((int) $obj->fk_element) <= 0 || $invoice->fetch($invoiceid) <= 0 || $invoice->socid != $source->socid
-				|| !in_array((int) $invoice->entity, array_map('intval', explode(',', getEntity('invoice'))))) {
+				|| !in_array((int) $invoice->entity, array_map('intval', explode(',', getEntity('invoice'))))
+				|| $invoice->status == Facture::STATUS_DRAFT || $invoice->type == Facture::TYPE_CREDIT_NOTE || !$used || $used->nb > 0) {	// One installment per invoice
 				$this->error = $langs->trans('InstallmentsErrorInvoice');
 				return -1;
 			}
@@ -1246,7 +1324,7 @@ class InstallmentSchedule
 	 *
 	 * @return	bool	True if <prefix>echeancier exists
 	 */
-	protected function hasOldTables()
+	public function hasOldTables()
 	{
 		$tables = $this->db->DDLListTables($this->db->database_name, $this->db->prefix().'echeancier');
 
@@ -1268,12 +1346,20 @@ class InstallmentSchedule
 		global $conf, $langs;
 
 		$langs->load('installments@installments');
-		$report = array('schedules' => 0, 'lines' => 0, 'tocheck' => 0, 'skipped' => array(), 'different' => array());
+		if (!$user->admin) {
+			$this->error = $langs->trans('NotEnoughPermissions');
+			return -1;
+		}
+		$report = array('schedules' => 0, 'lines' => 0, 'tocheck' => 0, 'matched' => array(), 'skipped' => array(), 'different' => array());
 		if (!$this->hasOldTables()) {
 			return $report;
 		}
 		$types = array(1 => 'propal', 2 => 'facture', 3 => 'commande');
-		$today = dol_get_first_hour(dol_now());
+		$used = array();	// Invoices of an installment, each one used once: the ones the module Echeancier made first
+		$resql = $this->db->query("SELECT invoice FROM ".$this->db->prefix()."echeance WHERE invoice > 0");
+		while ($resql && ($obj = $this->db->fetch_object($resql))) {
+			$used[(int) $obj->invoice] = 1;
+		}
 		$resql = $this->db->query("SELECT * FROM ".$this->db->prefix()."echeancier ORDER BY id");
 		if (!$resql) {
 			$this->error = $this->db->lasterror();
@@ -1286,7 +1372,7 @@ class InstallmentSchedule
 		if (!$dryrun) {
 			$this->db->begin();
 		}
-		foreach ($olds as $old) {
+		foreach ($olds as $old) {	// Run once, at the import: a few queries per old schedule
 			$element = $types[(int) $old->type] ?? '';
 			$label = 'ech'.$old->id;
 			if (!$element) {
@@ -1307,6 +1393,13 @@ class InstallmentSchedule
 				continue;
 			}
 			$billing = ($element != 'facture' && !empty($old->invoice) ? 1 : 0);
+			$candidates = ($billing ? $this->getImportCandidates($object) : array());
+			if (!is_array($candidates)) {
+				if (!$dryrun) {
+					$this->db->rollback();
+				}
+				return -1;
+			}
 			$lines = array();
 			$total = 0.0;
 			$resline = $this->db->query("SELECT * FROM ".$this->db->prefix()."echeance WHERE fk_echeancier = ".((int) $old->id)." AND montant > 0 ORDER BY date_reglement, rowid");
@@ -1317,20 +1410,39 @@ class InstallmentSchedule
 				}
 				return -1;
 			}
+			$pairs = array();
 			while ($oldline = $this->db->fetch_object($resline)) {
 				$date = (int) $this->db->jdate($oldline->date_reglement);
 				$invoiceid = ($billing && !empty($oldline->invoice) ? (int) $oldline->invoice : 0);
-				$status = ($billing && !$invoiceid && $date < $today ? self::STATUS_TOCHECK : self::STATUS_OPEN);
-				$lines[] = array('date' => $date, 'amount' => (float) $oldline->montant, 'invoiceid' => $invoiceid, 'status' => $status, 'note' => (string) $oldline->note,
+				$lines[] = array('date' => $date, 'amount' => (float) $oldline->montant, 'invoiceid' => $invoiceid, 'status' => self::STATUS_OPEN, 'note' => (string) $oldline->note,
 					'key' => 'ech'.$oldline->rowid);
 				$total += (float) $oldline->montant;
-				$report['tocheck'] += ($status == self::STATUS_TOCHECK ? 1 : 0);
+				foreach ($billing && !$invoiceid ? $candidates : array() as $candidate) {	// Invoiced by hand? Same amount, within 45 days
+					if (abs($candidate->total - (float) $oldline->montant) <= 0.01 && abs($candidate->date - $date) <= 45 * 86400) {
+						$pairs[] = array(count($lines) - 1, $candidate, abs($candidate->date - $date));
+					}
+				}
+			}
+			usort($pairs, 'installmentsComparePairs');	// The best pairs first: an invoice linked to the document, then the closest date
+			foreach ($pairs as $pair) {
+				list($i, $candidate) = $pair;
+				if (!$lines[$i]['invoiceid'] && !isset($used[$candidate->id])) {
+					$lines[$i]['invoiceid'] = $candidate->id;
+					$used[$candidate->id] = 1;
+					$report['matched'][] = $object->ref.' '.dol_print_date($lines[$i]['date'], 'day').' '.price($lines[$i]['amount'], 0, $langs, 1, -1, -1, $conf->currency).' → '.$candidate->ref;
+				}
+			}
+			foreach ($lines as $i => $line) {	// Never invoiced by the job: past or future, to check by hand
+				if ($billing && !$line['invoiceid']) {
+					$lines[$i]['status'] = self::STATUS_TOCHECK;
+					$report['tocheck']++;
+				}
 			}
 			if (empty($lines)) {
 				$report['skipped'][] = $object->ref.': '.$langs->trans('InstallmentsImportNoLine');
 				continue;
 			}
-			if (round($total - (float) $object->total_ttc, getDolGlobalInt('MAIN_MAX_DECIMALS_TOT', 2)) != 0) {
+			if (round($total - (float) $object->total_ttc, $this->decimals) != 0) {
 				$report['different'][] = $object->ref.': '.price($total, 0, $langs, 1, -1, -1, $conf->currency).' / '.price((float) $object->total_ttc, 0, $langs, 1, -1, -1, $conf->currency);
 			}
 			$report['schedules']++;
@@ -1364,4 +1476,48 @@ class InstallmentSchedule
 
 		return $report;
 	}
+
+	/**
+	 * Invoices that may have been made by hand for the installments of a proposal or an order: validated standard invoices of its
+	 * customer not linked to an installment yet, the ones linked to the document marked
+	 *
+	 * @param	CommonObject	$object		Proposal or order
+	 * @return	array<int,stdClass>|int<-1,-1>	Invoices (id, ref, date, total, linked), -1 if error
+	 */
+	private function getImportCandidates(CommonObject $object)
+	{
+		$element = $this->db->escape($object->element);
+		$sql = "SELECT f.rowid, f.ref, f.datef, f.total_ttc, (SELECT COUNT(ee.rowid) FROM ".$this->db->prefix()."element_element as ee";
+		$sql .= " WHERE (ee.sourcetype = '".$element."' AND ee.fk_source = ".((int) $object->id)." AND ee.targettype = 'facture' AND ee.fk_target = f.rowid)";
+		$sql .= " OR (ee.targettype = '".$element."' AND ee.fk_target = ".((int) $object->id)." AND ee.sourcetype = 'facture' AND ee.fk_source = f.rowid)) as linked";
+		$sql .= " FROM ".$this->db->prefix()."facture as f";
+		$sql .= " WHERE f.fk_soc = ".((int) $object->socid)." AND f.entity IN (".getEntity('invoice').") AND f.type = ".((int) Facture::TYPE_STANDARD);
+		$sql .= " AND f.fk_statut IN (".((int) Facture::STATUS_VALIDATED).", ".((int) Facture::STATUS_CLOSED).")";
+		$sql .= " AND NOT EXISTS (SELECT l.rowid FROM ".$this->db->prefix()."installments_line as l WHERE l.fk_facture = f.rowid)";
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+		$candidates = array();
+		while ($obj = $this->db->fetch_object($resql)) {
+			$candidates[] = (object) array('id' => (int) $obj->rowid, 'ref' => (string) $obj->ref, 'date' => (int) $this->db->jdate($obj->datef),
+				'total' => (float) $obj->total_ttc, 'linked' => (int) ($obj->linked > 0));
+		}
+
+		return $candidates;
+	}
+}
+
+
+/**
+ * Order of the pairs installment - invoice of the import: an invoice linked to the document first, then the closest date
+ *
+ * @param	array{0:int,1:stdClass,2:int}	$a	Pair (installment, invoice, gap in seconds)
+ * @param	array{0:int,1:stdClass,2:int}	$b	Pair
+ * @return	int									<0, 0 or >0
+ */
+function installmentsComparePairs($a, $b)
+{
+	return ($b[1]->linked <=> $a[1]->linked) ?: ($a[2] <=> $b[2]);
 }
