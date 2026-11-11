@@ -1,0 +1,134 @@
+# Copyright (C) 2026		Maxime DION				<m.dion@guiltek.fr>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+#
+# Generic
+#
+ModulePaymentScheduleName = Échéances
+ModulePaymentScheduleDesc = Une facture payée en plusieurs fois, ou un devis ou une commande facturé en plusieurs fois
+Permission23125501 = Voir les échéanciers
+Permission23125502 = Créer et modifier les échéanciers, facturer leurs échéances
+PaymentSchedule = Échéancier
+PaymentScheduleMenu = Échéances
+PaymentScheduleNone = Pas d'échéancier : le document est attendu en un seul paiement.
+PaymentScheduleNew = Nouvel échéancier
+PaymentScheduleDueDate = Échéance
+PaymentScheduleToCollect = Paiement attendu
+PaymentScheduleToInvoice = À facturer
+PaymentScheduleStateOpen = À traiter
+PaymentScheduleStateAll = Toutes
+PaymentScheduleStateTodo = À venir
+PaymentScheduleStateLate = En retard
+PaymentScheduleStatePaid = Payée
+PaymentScheduleStateInvoiced = Facturée
+PaymentScheduleStateTocheck = À vérifier
+PaymentScheduleStateAbandoned = Abandonnée
+PaymentScheduleKey = Échéances du document (date, montant, mode de règlement), une par ligne
+
+#
+# Tab of a document
+#
+PaymentScheduleCalculate = Calculer
+PaymentScheduleTemplate = Modèle
+PaymentScheduleCustom = Sur mesure
+PaymentScheduleFirstDate = première échéance le
+PaymentScheduleInstallments = échéances
+PaymentScheduleEvery = tous les
+PaymentScheduleFirstPercent = part de la première
+PaymentScheduleLocked = Payée, facturée ou prélevée : cette échéance ne peut plus changer
+PaymentScheduleBilling = Une facture par échéance
+PaymentScheduleBillingHelp = Coché : chaque échéance devient une facture à sa date, créée par la tâche planifiée. Non coché : la facture du document est attendue en plusieurs paiements.
+PaymentScheduleInvoiceMode = Facture d'une échéance
+PaymentScheduleValidatedAndSent = Validée et envoyée par e-mail
+PaymentScheduleDelete = Supprimer l'échéancier
+PaymentScheduleConfirmDelete = Supprimer l'échéancier de ce document ?
+PaymentScheduleCreateInvoice = Facturer maintenant
+PaymentScheduleConfirmCreateInvoice = Créer la facture de l'échéance du %s (%s) ? Elle sera : %s.
+PaymentScheduleInvoiceCreated = Facture de l'échéance créée
+PaymentScheduleLinkInvoice = Déjà facturée
+PaymentScheduleConfirmLink = L'échéance du %s a été facturée à la main : choisissez sa facture.
+PaymentScheduleAbandon = Abandonner
+PaymentScheduleConfirmAbandon = Abandonner l'échéance du %s ? Elle ne sera jamais facturée.
+PaymentScheduleDebitRequested = Prélèvement demandé
+PaymentScheduleDueDateManaged = Cette facture a un échéancier : sa date d'échéance suit la prochaine échéance impayée et elle est recalculée à chaque paiement.
+PaymentScheduleCoreReminderWarning = La tâche de relance de Dolibarr (Envoi des relances des factures impayées) est active : elle relance à la date de chaque échéance avec tout le reste à payer. Le module Relances relance chaque échéance pour son seul montant.
+PaymentScheduleSixtyDaysWarning = Entre professionnels en France, le délai de paiement ne peut pas dépasser 60 jours après la date de la facture, ou 45 jours fin de mois si le contrat le prévoit (article L441-10 du Code de commerce). Au-delà, faites une facture par échéance.
+PaymentScheduleTotalDiffers = Les échéances totalisent %s, le document %s : modifiez l'échéancier.
+
+#
+# List, widget and jobs
+#
+PaymentScheduleRecordPayments = Enregistrer les paiements
+PaymentScheduleConfirmPayments = Enregistrer comme reçu le reste à payer des %s échéances sélectionnées, un paiement par facture ? À faire seulement après vérification du relevé bancaire.
+PaymentScheduleNbPayments = %s paiement(s) enregistré(s)
+PaymentScheduleBulkPayment = Échéances de l'échéancier
+PaymentScheduleCreateInvoices = Facturer les échéances
+PaymentScheduleConfirmInvoices = Créer les factures des %s échéances sélectionnées, comme le prévoit leur échéancier ?
+PaymentScheduleInvoicesCreated = %s facture(s) d'échéances créée(s)
+PaymentScheduleDebitsCreated = %s demande(s) de prélèvement créée(s)
+PaymentScheduleWidget = Échéances : échéances à traiter
+PaymentScheduleWidgetTitle = Échéances en retard ou attendues ce mois-ci (%s)
+PaymentScheduleInvoiceJob = Factures des échéances
+PaymentScheduleInvoiceJobComment = Crée la facture de chaque échéance d'un devis ou d'une commande à sa date (brouillon, validée ou envoyée, comme le prévoit son échéancier). Les échéances antérieures au premier lancement sont facturées à la main.
+PaymentScheduleDebitJob = Prélèvements des échéances
+PaymentScheduleDebitJobComment = Crée une demande de prélèvement pour chaque échéance impayée réglée par prélèvement, quelques jours avant sa date.
+PaymentScheduleInvoiceLine = Échéance %s sur %s de %s
+PaymentScheduleEventSent = Facture %s envoyée par e-mail (échéancier)
+
+#
+# Setup, dictionary and import
+#
+PaymentScheduleSetup = Configuration des échéances
+PaymentScheduleDebitDays = Jours avant la date d'une échéance pour demander son prélèvement
+PaymentScheduleDebitDaysHelp = La demande part dans le prochain ordre de prélèvement fait par Dolibarr. 5 par défaut.
+PaymentScheduleStrictCheckInfo = Dolibarr garde une seule demande de prélèvement en attente par facture : l'échéance suivante est demandée une fois la précédente dans un ordre de prélèvement. Mettez WITHDRAW_STRICT_CHECK_AMOUNT à 1 pour autoriser plusieurs demandes partielles.
+PaymentScheduleTemplatesInfo = Les modèles d'échéancier sont dans %s (Modèles d'échéancier).
+PaymentScheduleTemplates = Modèles d'échéancier
+PaymentScheduleTemplate3X = En 3 mensualités
+PaymentScheduleTemplate30-70 = 30 % puis 70 % à 30 jours
+PaymentScheduleTemplate12M = 12 mensualités
+PaymentScheduleHelpNb = Nombre d'échéances
+PaymentScheduleHelpMonths = Mois entre deux échéances
+PaymentScheduleHelpDays = Jours entre deux échéances, ajoutés aux mois
+PaymentScheduleHelpFirstPercent = Part de la première échéance en %, 0 pour des échéances égales
+PaymentScheduleHelpModeCode = Code du mode de règlement (VIR, PRE, CHQ...), vide pour celui du document
+Nb = Nombre
+First_percent = Première (%)
+Mode_code = Mode de règlement
+PaymentScheduleImport = Reprise d'Échéancier
+PaymentScheduleImportHelp = Les échéanciers du module Échéancier (Artis Auxilium) sont copiés, ses tables sont seulement lues. Les échéances passées des devis et commandes sans facture arrivent « À vérifier » : elles ont peut-être été facturées à la main, et la tâche planifiée ne les facture jamais.
+PaymentScheduleImportPreview = À reprendre
+PaymentScheduleImportSchedules = Échéanciers
+PaymentScheduleImportLines = Échéances
+PaymentScheduleImportDifferent = Total différent du document
+PaymentScheduleImportSkipped = Laissés de côté
+PaymentScheduleConfirmImport = Reprendre les échéanciers du module Échéancier ?
+PaymentScheduleImportDone = %s échéancier(s) et %s échéance(s) repris, %s à vérifier
+PaymentScheduleImportUnknownType = type de document inconnu
+PaymentScheduleImportNoDocument = document introuvable
+PaymentScheduleImportExists = a déjà un échéancier
+PaymentScheduleImportNoLine = aucune échéance avec un montant
+
+#
+# Errors
+#
+PaymentScheduleErrorLine = Chaque échéance demande une date et un montant supérieur à zéro
+PaymentScheduleErrorTotal = Les échéances totalisent %s au lieu de %s
+PaymentScheduleErrorLocked = L'échéance du %s est payée, facturée ou prélevée : elle doit rester inchangée
+PaymentScheduleErrorDelete = Une échéance est payée, facturée ou prélevée : l'échéancier ne peut pas être supprimé
+PaymentScheduleErrorNotToInvoice = Cette échéance n'est pas à facturer
+PaymentScheduleErrorInvoice = La facture doit exister et appartenir au même client
+PaymentScheduleErrorModeNotAllowed = L'auteur de l'échéancier n'a pas le droit de valider ou d'envoyer les factures : la facture reste en brouillon ou n'est pas envoyée
+PaymentSchedulePdfMore = + %s autres échéances

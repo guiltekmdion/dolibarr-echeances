@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+declare(strict_types=1);
+
 /**
  * \file    paymentschedule/lib/paymentschedule.lib.php
  * \ingroup paymentschedule
@@ -23,17 +25,13 @@
  */
 
 /**
- * Prepare admin pages header
+ * Prepare admin pages header: settings, import of the module Echeancier when its tables are there, about
  *
  * @return array<array{string,string,string}>
  */
 function paymentscheduleAdminPrepareHead()
 {
-	global $langs, $conf;
-
-	// global $db;
-	// $extrafields = new ExtraFields($db);
-	// $extrafields->fetch_name_optionals_label('myobject');
+	global $db, $langs, $conf;
 
 	$langs->load("paymentschedule@paymentschedule");
 
@@ -45,39 +43,19 @@ function paymentscheduleAdminPrepareHead()
 	$head[$h][2] = 'settings';
 	$h++;
 
-	/*
-	$head[$h][0] = dolBuildUrl(dol_buildpath("/paymentschedule/admin/myobject_extrafields.php", 1));
-	$head[$h][1] = $langs->trans("ExtraFields");
-	$nbExtrafields = (isset($extrafields->attributes['myobject']['label']) && is_countable($extrafields->attributes['myobject']['label'])) ? count($extrafields->attributes['myobject']['label']) : 0;
-	if ($nbExtrafields > 0) {
-		$head[$h][1] .= '<span class="badge marginleftonlyshort">' . $nbExtrafields . '</span>';
+	$tables = $db->DDLListTables($db->database_name, $db->prefix().'echeancier');
+	if (is_array($tables) && in_array($db->prefix().'echeancier', $tables)) {
+		$head[$h][0] = dolBuildUrl(dol_buildpath("/paymentschedule/admin/import.php", 1));
+		$head[$h][1] = $langs->trans("PaymentScheduleImport");
+		$head[$h][2] = 'import';
+		$h++;
 	}
-	$head[$h][2] = 'myobject_extrafields';
-	$h++;
-
-	$head[$h][0] = dolBuildUrl(dol_buildpath("/paymentschedule/admin/myobjectline_extrafields.php", 1));
-	$head[$h][1] = $langs->trans("ExtraFieldsLines");
-	$nbExtrafields = (isset($extrafields->attributes['myobjectline']['label']) && is_countable($extrafields->attributes['myobjectline']['label'])) ? count($extrafields->attributes['myobject']['label']) : 0;
-	if ($nbExtrafields > 0) {
-		$head[$h][1] .= '<span class="badge marginleftonlyshort">' . $nbExtrafields . '</span>';
-	}
-	$head[$h][2] = 'myobject_extrafieldsline';
-	$h++;
-	*/
 
 	$head[$h][0] = dolBuildUrl(dol_buildpath("/paymentschedule/admin/about.php", 1));
 	$head[$h][1] = $langs->trans("About");
 	$head[$h][2] = 'about';
 	$h++;
 
-	// Show more tabs from modules
-	// Entries must be declared in modules descriptor with line
-	//$this->tabs = array(
-	//	'entity:+tabname:Title:@paymentschedule:/paymentschedule/mypage.php?id=__ID__'
-	//); // to add new tab
-	//$this->tabs = array(
-	//	'entity:-tabname:Title:@paymentschedule:/paymentschedule/mypage.php?id=__ID__'
-	//); // to remove a tab
 	complete_head_from_modules($conf, $langs, null, $head, $h, 'paymentschedule@paymentschedule');
 
 	complete_head_from_modules($conf, $langs, null, $head, $h, 'paymentschedule@paymentschedule', 'remove');

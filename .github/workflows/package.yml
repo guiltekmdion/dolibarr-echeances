@@ -1,0 +1,117 @@
+# Tests the module on Dolibarr 24.0.3 (demo database, PHP 8.1 and 8.3), then builds module_paymentschedule-<version>.zip with the script
+# of the ModuleBuilder (build/buildzip.php): the folder paymentschedule/ inside, the format of Home > Setup > Modules > Deploy/install
+# external app/module. A tag vX.Y.Z, equal to the version of the descriptor, publishes the zip in a GitHub release.
+name: Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        php: ['8.1', '8.3']
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: dolibarr
+        ports: ['3306:3306']
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Dolibarr/dolibarr
+          ref: '24.0.3'
+          path: dolibarr
+
+      - uses: actions/checkout@v4
+        with:
+          path: dolibarr/htdocs/custom/paymentschedule
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli, gd, intl, zip, calendar, soap
+          tools: phpunit:8.5
+
+      - name: Check the PHP syntax
+        working-directory: dolibarr/htdocs/custom/paymentschedule
+        run: find . -name "*.php" -print0 | xargs -0 -n1 php -l
+
+      - name: Load the demo database of Dolibarr 24.0.0
+        working-directory: dolibarr
+        run: |
+          # The first line of the dump is a MariaDB sandbox comment that the MySQL client refuses
+          tail -n +2 dev/initdemo/mysqldump_dolibarr_24.0.0.sql | mysql -h127.0.0.1 -uroot -proot dolibarr
+          mkdir -p "$GITHUB_WORKSPACE/documents/admin/temp"
+          cat > htdocs/conf/conf.php <<EOF
+          <?php
+          \$dolibarr_main_url_root='http://127.0.0.1';
+          \$dolibarr_main_document_root='$PWD/htdocs';
+          \$dolibarr_main_url_root_alt='/custom';
+          \$dolibarr_main_document_root_alt='$PWD/htdocs/custom';
+          \$dolibarr_main_data_root='$GITHUB_WORKSPACE/documents';
+          \$dolibarr_main_db_host='127.0.0.1';
+          \$dolibarr_main_db_port='3306';
+          \$dolibarr_main_db_name='dolibarr';
+          \$dolibarr_main_db_prefix='llx_';
+          \$dolibarr_main_db_user='root';
+          \$dolibarr_main_db_pass='root';
+          \$dolibarr_main_db_type='mysqli';
+          \$dolibarr_main_db_character_set='utf8';
+          \$dolibarr_main_db_collation='utf8_unicode_ci';
+          \$dolibarr_main_instance_unique_id='11f3c81e86fc9e3b3fd11d81c9a31bd0';
+          \$dolibarr_main_authentication='dolibarr';
+          \$dolibarr_main_prod='0';
+          EOF
+          # The tests run as user 1: make it an administrator, then enable the modules again so that it gets their rights
+          mysql -h127.0.0.1 -uroot -proot dolibarr -e "UPDATE llx_user SET admin = 1 WHERE rowid = 1"
+          (cd htdocs/install && php upgrade2.php 0.0.0 0.0.0 MAIN_MODULE_SOCIETE,MAIN_MODULE_FACTURE,MAIN_MODULE_PROPALE,MAIN_MODULE_COMMANDE,MAIN_MODULE_BANQUE,MAIN_MODULE_PRELEVEMENT,MAIN_MODULE_AGENDA,MAIN_MODULE_CRON > /dev/null)
+
+      - name: Run the tests of the module
+        working-directory: dolibarr
+        run: phpunit -d memory_limit=-1 -c test/phpunit/phpunittest.xml htdocs/custom/paymentschedule/test/phpunit/PaymentScheduleTest.php
+
+  zip:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the zip
+        run: |
+          version=$(sed -n "s/.*\$this->version = '\([0-9.]*\)'.*/\1/p" core/modules/modPaymentSchedule.class.php)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME differs from the version $version of the descriptor"; exit 1
+          fi
+          php build/buildzip.php
+          mkdir dist
+          mv "$(php -r 'echo sys_get_temp_dir();')/module_paymentschedule-$version.zip" dist/
+          unzip -l "dist/module_paymentschedule-$version.zip"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: module_paymentschedule-${{ env.VERSION }}
+          path: dist/*.zip
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip --title "Payment schedules $VERSION" \
+            --notes "Install: Home > Setup > Modules > Deploy/install external app/module, then send module_paymentschedule-$VERSION.zip. Changes: see ChangeLog.md."
