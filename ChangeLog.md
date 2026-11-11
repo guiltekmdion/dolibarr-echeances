@@ -9,7 +9,9 @@
 - A refused, draft or cancelled proposal or order is never invoiced; an invoice is never emailed without its PDF; local taxes kept in the invoices of the installments; an invoice linked to one installment only.
 - List and widget: expected payments of proposals and orders on their tab only, installments of an abandoned invoice abandoned.
 - Triggers return their errors (the core cancels its action); payment modes added by the user shown with their label.
-- Checked with phpcs, phpstan, phan and the coding tests of Dolibarr; tests on MySQL and PostgreSQL, Dolibarr 24.0 and develop.
+- Direct debit of one installment: the other installments keep the mode they had from the invoice (the core sets the mode of the invoice to direct debit). A schedule saved again keeps its installments to check and abandoned; an abandoned installment is never invoiced with the last one.
+- A schedule of an order or proposal not changed with its document is not copied to its invoice, and a template that can not apply is said: the validation always goes on.
+- Checked with phpcs, phpstan, phan and the coding tests of Dolibarr (`build/check.sh`, in the CI too); tests on MySQL and PostgreSQL, Dolibarr 24.0 and develop.
 
 ## 1.0.0
 
