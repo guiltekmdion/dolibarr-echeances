@@ -791,12 +791,12 @@ class PaymentSchedule
 		$line->invoiceid = $invoiceid;
 
 		$mode = ($mode < 0 ? $schedule->invoice_mode : $mode);
-		if ($mode >= self::INVOICE_VALIDATED) {	// The job validates and sends only what the author of the schedule may (his rights read again)
+		if ($mode >= self::INVOICE_VALIDATED) {	// Validated and sent only if the author of the schedule (his rights read again) and the user may
 			$author = new User($this->db);
 			if ($author->fetch((int) ($schedule->fk_user_creat ?? 0)) > 0) {
 				$author->loadRights();
 			}
-			$allowed = $this->getInvoiceModeAllowed($author->id > 0 ? $author : $user);
+			$allowed = min($this->getInvoiceModeAllowed($user), $author->id > 0 ? $this->getInvoiceModeAllowed($author) : self::INVOICE_DRAFT);	// The user who runs it too
 			if ($allowed < $mode) {
 				$this->errors[] = $source->ref.': '.$langs->trans('PaymentScheduleErrorModeNotAllowed');
 				$mode = $allowed;

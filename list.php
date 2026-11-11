@@ -163,7 +163,7 @@ if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_createinvoices' 
 	$errors = array();
 	$rows = $paymentschedule->getInstallments($user, array('type' => 'billing'));
 	foreach (is_array($rows) ? $rows : array() as $row) {
-		if (!in_array($row->id, $toselect) || $row->invoiceid || $row->status == PaymentSchedule::STATUS_ABANDONED || !$user->hasRight($row->element, 'lire')) {
+		if (!in_array($row->id, $toselect) || $row->invoiceid || $row->status == PaymentSchedule::STATUS_ABANDONED || !$user->hasRight($row->element, 'creer')) {	// Like the tab: the right to modify the proposal or the order
 			continue;
 		}
 		$schedule = $paymentschedule->fetch($row->element, $row->fk_element);

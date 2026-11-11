@@ -62,5 +62,5 @@ function paymentschedule_completesubstitutionarray(&$substitutionarray, $outputl
 		$lines[] = dol_print_date($line->date, 'day', false, $outputlangs).' : '.price($line->amount, 0, $outputlangs, 1, -1, -1, $conf->currency)
 			.($code && $code != '-1' ? ' ('.$outputlangs->transnoentitiesnoconv('PaymentType'.$code).')' : '');
 	}
-	$substitutionarray['__PAYMENTSCHEDULE__'] = implode("\n", $lines);
+	$substitutionarray['__PAYMENTSCHEDULE__'] = implode("<br>\n", $lines);	// HTML: the notes and the email templates are HTML by default, the ODT converts it
 }

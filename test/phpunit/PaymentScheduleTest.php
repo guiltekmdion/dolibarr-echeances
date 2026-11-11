@@ -689,7 +689,7 @@ class PaymentScheduleTest extends CommonClassTest
 		$this->assertNotSame('', $keys['__PAYMENTSCHEDULE__'], 'Its description in the editor');
 		$keys = array();
 		paymentschedule_completesubstitutionarray($keys, $langs, $invoice);
-		$this->assertSame(2, count(explode("\n", $keys['__PAYMENTSCHEDULE__'])));
+		$this->assertSame(2, count(explode("<br>\n", $keys['__PAYMENTSCHEDULE__'])));
 		$this->assertStringContainsString(dol_print_date(dol_mktime(12, 0, 0, 2, 10, 2030, 'tzserver'), 'day', false, $langs), $keys['__PAYMENTSCHEDULE__']);
 		$this->assertStringContainsString($langs->transnoentitiesnoconv('PaymentTypeVIR'), $keys['__PAYMENTSCHEDULE__']);
 		$keys = array();
