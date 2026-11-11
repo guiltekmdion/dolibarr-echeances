@@ -175,7 +175,7 @@ class ActionsInstallments extends CommonHookActions
 		if (empty($rows)) {
 			return 0;
 		}
-		$html = '<strong>'.dol_escape_htmltag($outputlangs->transnoentities('InstallmentSchedule')).'</strong><table>';
+		$html = '<strong>'.dol_escape_htmltag($outputlangs->transnoentities('InstallmentSchedule')).'</strong><br><table>';
 		foreach ($rows as $row) {
 			$html .= '<tr><td>'.dol_escape_htmltag($row['label']).'</td><td align="right">'.price($row['amount'], 0, $outputlangs, 1, -1, -1, $conf->currency).'</td></tr>';
 		}

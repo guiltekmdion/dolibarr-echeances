@@ -83,8 +83,33 @@ jobs:
         working-directory: dolibarr
         run: phpunit -d memory_limit=-1 -c test/phpunit/phpunittest.xml htdocs/custom/installments/test/phpunit/InstallmentsTest.php
 
+  checks:
+    # phpcs, phpstan and phan with the tools and the setup of Dolibarr (build/check.sh copies the module out of htdocs/custom)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Dolibarr/dolibarr
+          ref: '24.0.3'
+          path: dolibarr
+
+      - uses: actions/checkout@v4
+        with:
+          path: module
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: ast, mysqli, gd, intl, zip, calendar, soap
+          ini-values: memory_limit=-1
+          coverage: none
+          tools: phpcs:3.13.6, phpstan:2.3.3, phan:5.5.2
+
+      - name: phpcs, phpstan and phan
+        run: sh module/build/check.sh dolibarr
+
   zip:
-    needs: test
+    needs: [test, checks]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:

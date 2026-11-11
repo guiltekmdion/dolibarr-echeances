@@ -249,6 +249,7 @@ class modInstallments extends DolibarrModules
 		$r = 0;
 		/* BEGIN MODULEBUILDER TOPMENU */
 		// No top menu: the list of the installments is in the left menu of Billing
+		// @phpstan-ignore-next-line	(shape of the ModuleBuilder template: 'prefix' is read by DolibarrModules::insert_menus(), not declared in its type)
 		$this->menu[$r++] = array(
 			'fk_menu' => 'fk_mainmenu=billing',
 			'type' => 'left',

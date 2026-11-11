@@ -1016,6 +1016,106 @@ class InstallmentsTest extends CommonClassTest
 	}
 
 	/**
+	 * Cases found by the review of 1.1.0: a schedule of an order not changed with it is not copied (the validation goes on); the invoice of
+	 * an installment is not split by the template of its payment term; an amount too small for a template does not stop a validation;
+	 * a schedule saved again keeps its installments to check and abandoned; an abandoned installment is not invoiced with the last one;
+	 * only an installment to invoice can be abandoned, never linked to an abandoned invoice
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsReviewCases()
+	{
+		global $conf;
+
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$p = $db->prefix();
+		$installments = new InstallmentSchedule($db);
+		$socid = $this->createCustomer('review');
+		$today = dol_now();
+
+		// Order of 1200 with expected payments, its total changed later: the invoice of 1500 is validated without schedule
+		$order = $this->createOrder($socid, array(array(1000, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $order, $installments->generate(1200.0, 3, 1, 0, $today)), $installments->error);
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."commande SET total_ttc = 1500 WHERE rowid = ".((int) $order->id)));
+		$invoice = $this->createInvoice($socid, array(array(1250, 20)), array('commande' => $order->id));
+		$this->assertSame(0, $installments->copyFromOrigin($user, $invoice), 'A stale schedule is not copied');
+		$this->assertSame(0, $installments->fetch('facture', $invoice->id));
+
+		// Template of the payment term 1: never on the invoice of an installment; an amount too small, said but not blocking
+		$code = (string) dol_getIdFromCode($db, 1, 'c_payment_term', 'rowid', 'code', 1);
+		$this->assertTrue((bool) $db->query("INSERT INTO ".$p."c_installments_template (entity, code, label, nb, split_rule, payment_term_code, position, active) VALUES (".((int) $conf->entity).", 'PSTESTREV', 'PSTEST rev', 1, '50:0;50:30', '".$db->escape($code)."', 99, 1)"));
+		$billing = $this->createOrder($socid, array(array(300, 20)));
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."commande SET fk_cond_reglement = 1 WHERE rowid = ".((int) $billing->id)));
+		$lines = array();
+		foreach (array(0, 30, 60) as $days) {
+			$lines[] = array('date' => dol_time_plus_duree($today, $days, 'd'), 'amount' => 120.0, 'mode' => 0, 'note' => '');
+		}
+		$this->assertGreaterThan(0, $installments->save($user, $billing, $lines, 1), $installments->error);
+		$schedule = $installments->fetch('commande', $billing->id);
+		$first = new Facture($db);
+		$first->fetch($installments->createInvoice($user, $schedule, $schedule->lines[0], InstallmentSchedule::INVOICE_DRAFT));
+		$this->assertSame(1, (int) $first->cond_reglement_id);
+		$this->assertSame(0, $installments->applyPaymentTermTemplate($user, $first), 'An installment is not split again');
+		$this->assertSame(0, $installments->fetch('facture', $first->id));
+		$tiny = $this->createInvoice($socid, array(array(0.01, 0)));
+		$this->assertSame(0, $installments->applyPaymentTermTemplate($user, $tiny), 'Half of 0.01: said, not blocking');
+
+		// Saved again: the installment to check and the abandoned one stay so
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."installments_line SET status = ".InstallmentSchedule::STATUS_ABANDONED." WHERE rowid = ".((int) $schedule->lines[1]->id)));
+		$schedule = $installments->fetch('commande', $billing->id);
+		$given = array();
+		foreach ($schedule->lines as $line) {
+			$given[] = array('id' => $line->id, 'date' => $line->date, 'amount' => $line->amount, 'mode' => $line->mode, 'note' => $line->note);
+		}
+		$this->assertGreaterThan(0, $installments->save($user, $billing, $given, 1), $installments->error);
+		$schedule = $installments->fetch('commande', $billing->id);
+		$this->assertSame(InstallmentSchedule::STATUS_ABANDONED, $schedule->lines[1]->status, 'Kept abandoned');
+
+		// The last installment: its own amount, the abandoned one is not invoiced
+		$last = new Facture($db);
+		$last->fetch($installments->createInvoice($user, $schedule, $schedule->lines[2], InstallmentSchedule::INVOICE_DRAFT));
+		$this->assertSame(120.0, (float) price2num($last->total_ttc, 'MT'));
+
+		// Abandon: installments to invoice only; never linked to an abandoned invoice
+		$own = $this->createInvoice($socid, array(array(100, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $own, $installments->generate(120.0, 2, 1, 0, $today)), $installments->error);
+		$this->assertSame(-1, $installments->settle($user, $installments->fetch('facture', $own->id)->lines[0]->id, 0), 'An expected payment is never abandoned');
+		$other = $this->createOrder($socid, array(array(100, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $other, array(array('date' => $today, 'amount' => 120.0, 'mode' => 0, 'note' => '')), 1), $installments->error);
+		$cancelled = $this->createInvoice($socid, array(array(100, 20)));
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."facture SET fk_statut = ".Facture::STATUS_ABANDONED." WHERE rowid = ".((int) $cancelled->id)));
+		$this->assertSame(-1, $installments->settle($user, $installments->fetch('commande', $other->id)->lines[0]->id, $cancelled->id), 'Not an abandoned invoice');
+	}
+
+	/**
+	 * Direct debit of one installment: the core sets the mode of the invoice to direct debit, the other installments keep the mode they had
+	 * from the invoice (not debited)
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsDebitKeepsOtherModes()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$invoice = $this->createInvoice($this->createCustomer('debitmodes'), array(array(1000, 20)));
+		$vir = (int) dol_getIdFromCode($db, 'VIR', 'c_paiement', 'code', 'id', 1);
+		$pre = (int) dol_getIdFromCode($db, 'PRE', 'c_paiement', 'code', 'id', 1);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET fk_mode_reglement = ".$vir." WHERE rowid = ".((int) $invoice->id)));
+		$invoice->fetch($invoice->id);
+		$today = dol_now();
+		$lines = array(array('date' => dol_time_plus_duree($today, 2, 'd'), 'amount' => 400.0, 'mode' => $pre, 'note' => ''), array('date' => dol_time_plus_duree($today, 3, 'd'), 'amount' => 400.0, 'mode' => 0, 'note' => ''),
+			array('date' => dol_time_plus_duree($today, 40, 'd'), 'amount' => 400.0, 'mode' => 0, 'note' => ''));
+		$this->assertGreaterThan(0, $installments->save($user, $invoice, $lines), $installments->error);
+
+		$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$this->assertSame(array($pre, $vir, $vir), array_column($schedule->lines, 'mode'), 'The others keep the transfer');
+		$this->assertSame(array(true, false), array($schedule->lines[0]->debitid > 0, $schedule->lines[1]->debitid > 0));
+	}
+
+	/**
 	 * An invoice is never emailed without its PDF
 	 *
 	 * @return void
