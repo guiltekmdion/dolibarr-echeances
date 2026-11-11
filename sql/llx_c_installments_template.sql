@@ -26,6 +26,8 @@ CREATE TABLE llx_c_installments_template(
 	days integer DEFAULT 0 NOT NULL,				-- days between two installments, added to the months
 	first_percent double(6,3) DEFAULT 0 NOT NULL,	-- share of the first installment (%), 0 = equal installments
 	mode_code varchar(16),							-- code of the payment mode (llx_c_paiement), empty = the one of the document
+	split_rule varchar(255),						-- free installments "percent:days[:eom];..." (e.g. 30:0;30:30;40:60:eom), instead of nb, months, days and first_percent
+	payment_term_code varchar(16),					-- code of a payment term (llx_c_payment_term): its documents get this schedule at their validation
 	position integer DEFAULT 0 NOT NULL,
 	active tinyint DEFAULT 1 NOT NULL
 ) ENGINE=innodb;

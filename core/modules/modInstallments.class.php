@@ -172,15 +172,16 @@ class modInstallments extends DolibarrModules
 			'langs' => 'installments@installments',
 			'tabname' => array('c_installments_template'),
 			'tablib' => array('InstallmentsTemplates'),
-			'tabsql' => array('SELECT t.rowid as rowid, t.code, t.label, t.nb, t.months, t.days, t.first_percent, t.mode_code, t.position, t.active, t.entity FROM '.$this->db->prefix().'c_installments_template as t WHERE t.entity IN ('.getEntity('c_installments_template').')'),
+			'tabsql' => array('SELECT t.rowid as rowid, t.code, t.label, t.nb, t.months, t.days, t.first_percent, t.mode_code, t.split_rule, t.payment_term_code, t.position, t.active, t.entity FROM '.$this->db->prefix().'c_installments_template as t WHERE t.entity IN ('.getEntity('c_installments_template').')'),
 			'tabsqlsort' => array('position ASC, label ASC'),
-			'tabfield' => array('code,label,nb,months,days,first_percent,mode_code,position'),
-			'tabfieldvalue' => array('code,label,nb,months,days,first_percent,mode_code,position'),
-			'tabfieldinsert' => array('code,label,nb,months,days,first_percent,mode_code,position,entity'),
+			'tabfield' => array('code,label,nb,months,days,first_percent,mode_code,split_rule,payment_term_code,position'),
+			'tabfieldvalue' => array('code,label,nb,months,days,first_percent,mode_code,split_rule,payment_term_code,position'),
+			'tabfieldinsert' => array('code,label,nb,months,days,first_percent,mode_code,split_rule,payment_term_code,position,entity'),
 			'tabrowid' => array('rowid'),
 			'tabcond' => array(isModEnabled('installments')),
 			'tabhelp' => array(array('nb' => $langs->trans('InstallmentsHelpNb'), 'months' => $langs->trans('InstallmentsHelpMonths'), 'days' => $langs->trans('InstallmentsHelpDays'),
-				'first_percent' => $langs->trans('InstallmentsHelpFirstPercent'), 'mode_code' => $langs->trans('InstallmentsHelpModeCode'))),
+				'first_percent' => $langs->trans('InstallmentsHelpFirstPercent'), 'mode_code' => $langs->trans('InstallmentsHelpModeCode'),
+				'split_rule' => $langs->trans('InstallmentsHelpSplitRule'), 'payment_term_code' => $langs->trans('InstallmentsHelpPaymentTerm'))),
 		);
 		/* END MODULEBUILDER DICTIONARIES */
 

@@ -204,6 +204,7 @@ class InstallmentsTest extends CommonClassTest
 			"DELETE FROM ".$db->prefix()."societe_rib WHERE fk_soc IN (".$socs.")",
 			"DELETE FROM ".$db->prefix()."societe WHERE nom LIKE 'PSTEST%'",
 			"DELETE FROM ".$db->prefix()."c_email_templates WHERE label LIKE 'PSTEST%'",
+			"DELETE FROM ".$db->prefix()."c_installments_template WHERE code LIKE 'PSTEST%'",
 			"DELETE FROM ".$db->prefix()."user_rights WHERE fk_user IN (SELECT rowid FROM ".$db->prefix()."user WHERE login LIKE 'pstest%')",
 			"DELETE FROM ".$db->prefix()."user WHERE login LIKE 'pstest%'",
 			"DELETE FROM ".$db->prefix()."const WHERE name = 'INSTALLMENTS_START_DATE'",
@@ -262,6 +263,83 @@ class InstallmentsTest extends CommonClassTest
 
 		$this->assertSame(array(55.0), array_column($installments->generate(55.0, 0, 1, 0, $first), 'amount'), 'At least one installment');
 		$this->assertCount(InstallmentSchedule::MAX_INSTALLMENTS, $installments->generate(55.0, 1000000, 1, 0, $first), 'At most 120');
+	}
+
+	/**
+	 * Free installments of a template (percent:days[:eom]), the last one taking the rounding; a wrong rule gives nothing and says why
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsSplitRule()
+	{
+		$installments = new InstallmentSchedule($this->savdb);
+		$first = dol_mktime(12, 0, 0, 1, 31, 2026, 'tzserver');
+		$template = (object) array('code' => 'PSTESTRULE', 'nb' => 2, 'months' => 1, 'days' => 0, 'first_percent' => 0.0, 'mode' => 7, 'split_rule' => ' 30:0; 30:30 ;40:60:eom;');
+
+		$lines = $installments->generateFromTemplate($template, 1000.0, $first);
+		$this->assertSame(array(300.0, 300.0, 400.0), array_column($lines, 'amount'));
+		$this->assertSame(array('2026-01-31', '2026-03-02', '2026-04-30'), array_map('installmentsTestDay', array_column($lines, 'date')), '60 days end of month');
+		$this->assertSame(array(7, 7, 7), array_column($lines, 'mode'));
+		$template->split_rule = '33.33:0;33.33:30;33.34:60';
+		$this->assertSame(array(33.33, 33.33, 33.34), array_column($installments->generateFromTemplate($template, 100.0, $first), 'amount'));
+		$template->split_rule = '50:0;50:30';
+		$this->assertSame(array(0.03, 0.02), array_column($installments->generateFromTemplate($template, 0.05, $first), 'amount'), 'The last one takes the rounding');
+		$template->split_rule = '';
+		$this->assertCount(2, $installments->generateFromTemplate($template, 100.0, $first), 'No free installments: the equal ones');
+
+		foreach (array('30:0;30:30', 'abc', '30:x;70:0', '50:10:foo;50:0', '-10:0;110:0') as $wrong) {
+			$template->split_rule = $wrong;
+			$installments->error = '';
+			$this->assertSame(array(), $installments->generateFromTemplate($template, 100.0, $first), $wrong);
+			$this->assertStringContainsString('PSTESTRULE', $installments->error, $wrong);
+		}
+	}
+
+	/**
+	 * Template of a payment term: given to an invoice, a proposal or an order at its validation when it has no schedule;
+	 * never to a credit note, never over an existing schedule; a wrong template does not stop the validation
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsPaymentTermTemplate()
+	{
+		global $conf, $langs;
+
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$trigger = new InterfaceInstallmentsTriggers($db);
+		$code = (string) dol_getIdFromCode($db, 1, 'c_payment_term', 'rowid', 'code', 1);
+		$sql = "INSERT INTO ".$db->prefix()."c_installments_template (entity, code, label, nb, split_rule, payment_term_code, position, active)";
+		$sql .= " VALUES (".((int) $conf->entity).", 'PSTESTTERM', 'PSTEST term', 1, '40:0;60:30', '".$db->escape($code)."', 99, 1)";
+		$this->assertTrue((bool) $db->query($sql), (string) $db->lasterror());
+		$socid = $this->createCustomer('term');
+
+		$invoice = $this->createInvoice($socid, array(array(1000, 20)));
+		$this->assertSame(0, $trigger->runTrigger('BILL_VALIDATE', $invoice, $user, $langs, $conf), $trigger->error);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$this->assertSame(array(480.0, 720.0), array_column($schedule->lines, 'amount'), 'Created at the validation');
+		$this->assertSame(dol_print_date($schedule->lines[0]->date, 'dayrfc'), $this->getDueDay($invoice->id), 'Due date: the first installment');
+		$this->assertSame(0, $installments->applyPaymentTermTemplate($user, $invoice), 'Never over an existing schedule');
+
+		$proposal = $this->createProposal($socid, array(array(100, 20, 0)));
+		$proposal->cond_reglement_id = 1;
+		$this->assertSame(0, $trigger->runTrigger('PROPAL_VALIDATE', $proposal, $user, $langs, $conf), $trigger->error);
+		$this->assertSame(array(48.0, 72.0), array_column($installments->fetch('propal', $proposal->id)->lines, 'amount'), 'A proposal too');
+
+		$credit = $this->createInvoice($socid, array(array(100, 20)));
+		$credit->type = Facture::TYPE_CREDIT_NOTE;
+		$this->assertSame(0, $installments->applyPaymentTermTemplate($user, $credit), 'Never a credit note');
+		$other = $this->createInvoice($socid, array(array(100, 20)));
+		$other->cond_reglement_id = (int) dol_getIdFromCode($db, '30D', 'c_payment_term', 'code', 'rowid', 1);
+		$this->assertGreaterThan(1, $other->cond_reglement_id);
+		$this->assertSame(0, $installments->applyPaymentTermTemplate($user, $other), 'Another payment term');
+		$this->assertSame(0, $installments->fetch('facture', $other->id));
+
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."c_installments_template SET split_rule = '40:0' WHERE code = 'PSTESTTERM'"));
+		$wrong = $this->createInvoice($socid, array(array(100, 20)));
+		$this->assertSame(0, $trigger->runTrigger('BILL_VALIDATE', $wrong, $user, $langs, $conf), 'A wrong template does not stop the validation');
+		$this->assertSame(0, $installments->fetch('facture', $wrong->id));
 	}
 
 	/**

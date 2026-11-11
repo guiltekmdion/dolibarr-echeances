@@ -287,13 +287,100 @@ class InstallmentSchedule
 	}
 
 	/**
+	 * Installments of a template of the dictionary: its free lines if it has some, else its equal installments
+	 *
+	 * @param	stdClass	$template	Template (fetchTemplates)
+	 * @param	float		$total		Amount to share, including tax
+	 * @param	int			$firstdate	Date of the document, or of the first installment
+	 * @return	array<int,array{date:int,amount:float,mode:int,note:string}>	Installments, none if the free lines are wrong (see error)
+	 */
+	public function generateFromTemplate(stdClass $template, $total, $firstdate)
+	{
+		global $langs;
+
+		if ($template->split_rule === '') {
+			return $this->generate($total, $template->nb, $template->months, $template->days, $firstdate, $template->first_percent, $template->mode);
+		}
+		$langs->load('installments@installments');
+		$parts = array_values(array_filter(array_map('trim', explode(';', $template->split_rule)), 'strlen'));
+		$start = dol_getdate($firstdate);
+		$base = dol_mktime(12, 0, 0, $start['mon'], $start['mday'], $start['year'], 'tzserver');
+		$lines = array();
+		$percents = 0.0;
+		$sum = 0.0;
+		foreach ($parts as $i => $part) {	// percent:days[:eom], the last one taking the rounding
+			$fields = array_map('trim', explode(':', $part));
+			$percent = (float) price2num($fields[0]);
+			$eom = strtolower($fields[2] ?? '');
+			if ($percent <= 0 || !preg_match('/^\d+$/', $fields[1] ?? '0') || !in_array($eom, array('', 'eom', 'fdm')) || count($parts) > self::MAX_INSTALLMENTS) {
+				$this->error = dolPrintLabel($langs->transnoentitiesnoconv('InstallmentsErrorSplitRule', $template->code, $part));
+				return array();
+			}
+			$percents += $percent;
+			$amount = ($i == count($parts) - 1 ? round($total - $sum, $this->decimals) : round($total * $percent / 100, $this->decimals));
+			$sum += $amount;
+			$date = dol_time_plus_duree($base, (int) ($fields[1] ?? 0), 'd');
+			if ($eom) {	// End of the month of the date
+				$day = dol_getdate($date);
+				$last = dol_getdate(dol_get_last_day($day['year'], $day['mon'], 'tzserver'));
+				$date = dol_mktime(12, 0, 0, $day['mon'], $last['mday'], $day['year'], 'tzserver');
+			}
+			$lines[] = array('date' => $date, 'amount' => $amount, 'mode' => $template->mode, 'note' => '');
+		}
+		if (empty($lines) || round($percents, 3) != 100.0) {
+			$this->error = dolPrintLabel($langs->transnoentitiesnoconv('InstallmentsErrorSplitRule', $template->code, $template->split_rule));
+			return array();
+		}
+
+		return $lines;
+	}
+
+	/**
+	 * At the validation of a document without schedule: the template of the dictionary linked to its payment term
+	 *
+	 * @param	User			$user		User validating
+	 * @param	CommonObject	$object		Invoice (standard), proposal or order
+	 * @return	int<-1,1>					1 if created, 0 if nothing to do, -1 if error
+	 */
+	public function applyPaymentTermTemplate(User $user, CommonObject $object)
+	{
+		if (($object instanceof Facture && (int) $object->type != Facture::TYPE_STANDARD) || (float) $object->total_ttc <= 0 || empty($object->cond_reglement_id)) {
+			return 0;
+		}
+		$code = (string) dol_getIdFromCode($this->db, (int) $object->cond_reglement_id, 'c_payment_term', 'rowid', 'code', 1);
+		$templates = $this->fetchTemplates();
+		if (!is_array($templates) || $code === '' || $code === '-1') {
+			return (is_array($templates) ? 0 : -1);
+		}
+		foreach ($templates as $template) {
+			if ($template->payment_term_code !== $code) {
+				continue;
+			}
+			$existing = $this->fetch($object->element, (int) $object->id);
+			if ($existing !== 0) {
+				return (is_object($existing) ? 0 : -1);
+			}
+			$lines = $this->generateFromTemplate($template, (float) $object->total_ttc, (int) $object->date);
+			if (empty($lines)) {	// A wrong template does not stop the validation: it is said
+				dol_syslog(__METHOD__.' '.$this->error, LOG_WARNING);
+				setEventMessages($this->error, null, 'warnings');
+				return 0;
+			}
+
+			return ($this->store($user, $object, $lines, 0, 0, 0) > 0 ? 1 : -1);
+		}
+
+		return 0;
+	}
+
+	/**
 	 * Active templates of schedules of the dictionary
 	 *
 	 * @return	array<int,stdClass>|int<-1,-1>	Templates by id, -1 if error
 	 */
 	public function fetchTemplates()
 	{
-		$sql = "SELECT rowid, code, label, nb, months, days, first_percent, mode_code FROM ".$this->db->prefix()."c_installments_template";
+		$sql = "SELECT rowid, code, label, nb, months, days, first_percent, mode_code, split_rule, payment_term_code FROM ".$this->db->prefix()."c_installments_template";
 		$sql .= " WHERE entity IN (".getEntity('c_installments_template').") AND active = 1".$this->db->order('position,label', 'ASC,ASC');
 		$resql = $this->db->query($sql);
 		if (!$resql) {
@@ -304,7 +391,8 @@ class InstallmentSchedule
 		while ($obj = $this->db->fetch_object($resql)) {
 			$templates[(int) $obj->rowid] = (object) array('id' => (int) $obj->rowid, 'code' => (string) $obj->code, 'label' => (string) $obj->label, 'nb' => (int) $obj->nb,
 				'months' => (int) $obj->months, 'days' => (int) $obj->days, 'first_percent' => (float) $obj->first_percent,
-				'mode' => ($obj->mode_code ? (int) dol_getIdFromCode($this->db, $obj->mode_code, 'c_paiement', 'code', 'id', 1) : 0));
+				'mode' => ($obj->mode_code ? (int) dol_getIdFromCode($this->db, $obj->mode_code, 'c_paiement', 'code', 'id', 1) : 0),
+				'split_rule' => trim((string) $obj->split_rule), 'payment_term_code' => (string) $obj->payment_term_code);
 		}
 
 		return $templates;

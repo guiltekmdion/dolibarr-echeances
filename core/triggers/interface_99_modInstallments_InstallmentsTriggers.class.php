@@ -32,7 +32,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
 class InterfaceInstallmentsTriggers extends DolibarrTriggers
 {
 	const ACTIONS = array('BILL_VALIDATE', 'BILL_MODIFY', 'BILL_PAYED', 'BILL_UNPAYED', 'PAYMENT_CUSTOMER_CREATE', 'PAYMENT_CUSTOMER_DELETE', 'DISCOUNT_MODIFY',
-		'BILL_DELETE', 'PROPAL_DELETE', 'ORDER_DELETE');
+		'BILL_DELETE', 'PROPAL_DELETE', 'ORDER_DELETE', 'PROPAL_VALIDATE', 'ORDER_VALIDATE');
 
 	/**
 	 * Constructor
@@ -68,9 +68,15 @@ class InterfaceInstallmentsTriggers extends DolibarrTriggers
 		$result = 0;
 
 		switch ($action) {
-			case 'BILL_VALIDATE':
+			case 'BILL_VALIDATE':	// The schedule of its order or proposal, else the one of its payment term
 				'@phan-var-force Facture $object';
-				$result = min($schedule->copyFromOrigin($user, $object), $schedule->syncDueDate($object));
+				$result = $schedule->copyFromOrigin($user, $object);
+				$result = ($result == 0 ? $schedule->applyPaymentTermTemplate($user, $object) : $result);
+				$result = min($result, $schedule->syncDueDate($object));
+				break;
+			case 'PROPAL_VALIDATE':
+			case 'ORDER_VALIDATE':
+				$result = $schedule->applyPaymentTermTemplate($user, $object);
 				break;
 			case 'BILL_MODIFY':	// A due date or payment terms changed by hand: the schedule decides
 			case 'BILL_PAYED':

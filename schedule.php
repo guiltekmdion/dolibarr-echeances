@@ -127,7 +127,10 @@ if (empty($reshook) && $action == 'generate' && $permissiontowrite) {
 	}
 	if ($templateid > 0 && is_array($templates) && isset($templates[$templateid])) {
 		$template = $templates[$templateid];
-		$generated = $installments->generate($total, $template->nb, $template->months, $template->days, $firstdate, $template->first_percent, $template->mode);
+		$generated = $installments->generateFromTemplate($template, $total, $firstdate);
+		if (empty($generated)) {
+			setEventMessages($installments->error, null, 'errors');
+		}
 	} else {
 		$generated = $installments->generate($total, GETPOSTINT('nb'), GETPOSTINT('months'), GETPOSTINT('days'), $firstdate,
 			(float) price2num(GETPOST('firstpercent', 'alpha')), GETPOSTINT('mode'));
