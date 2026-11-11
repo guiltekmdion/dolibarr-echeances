@@ -193,6 +193,7 @@ class InstallmentsTest extends CommonClassTest
 			"DELETE FROM ".$db->prefix()."bank WHERE rowid IN (SELECT fk_bank FROM ".$db->prefix()."paiement WHERE rowid IN (".$payments."))",
 			"DELETE FROM ".$db->prefix()."paiement WHERE rowid IN (".$payments.")",
 			"DELETE FROM ".$db->prefix()."prelevement_demande WHERE fk_facture IN (".$invoices.")",
+			"DELETE FROM ".$db->prefix()."prelevement_bons WHERE ref LIKE 'PSTEST%'",
 			"DELETE FROM ".$db->prefix()."societe_remise_except WHERE fk_soc IN (".$socs.")",
 			"DELETE FROM ".$db->prefix()."element_element WHERE (sourcetype IN ('propal', 'commande') AND targettype = 'facture' AND fk_target IN (".$invoices."))",
 			"DELETE FROM ".$db->prefix()."facturedet WHERE fk_facture IN (".$invoices.")",
@@ -635,6 +636,55 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertSame(Facture::STATUS_VALIDATED, (int) $invoice->status, implode(', ', $installments->errors));
 		$this->assertSame(array('pstest-job@example.com|Invoice '.$invoice->ref), $hook->mails, implode(', ', $installments->errors));
 		$this->assertSame(1, $this->countRows("SELECT COUNT(id) as nb FROM ".$db->prefix()."actioncomm WHERE code = 'AC_BILL_SENTBYMAIL' AND fk_element = ".((int) $invoiceid)." AND elementtype = 'invoice'"));
+	}
+
+	/**
+	 * A direct debit from the request to the payment, as the core does it: the order credited makes a payment of the installment
+	 * (the invoice stays open, its due date goes to the next installment, whose request comes next); a rejection makes a negative
+	 * payment: the installment is due again
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsDirectDebitCycle()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$invoice = $this->createInvoice($this->createCustomer('cycle'), array(array(1000, 20)));
+		$pre = (int) dol_getIdFromCode($db, 'PRE', 'c_paiement', 'code', 'id', 1);
+		$today = dol_now();
+		$lines = array();
+		foreach (array(3, 33, 63) as $days) {
+			$lines[] = array('date' => dol_time_plus_duree($today, $days, 'd'), 'amount' => 400.0, 'mode' => $pre, 'note' => '');
+		}
+		$this->assertGreaterThan(0, $installments->save($user, $invoice, $lines), $installments->error);
+		$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$this->assertGreaterThan(0, $schedule->lines[0]->debitid);
+
+		// The order of the bank, credited: its request done, a payment of the installment
+		$this->assertTrue((bool) $db->query("INSERT INTO ".$db->prefix()."prelevement_bons (ref, entity, datec, amount, statut, credite) VALUES ('PSTEST1', 1, '".$db->idate($today)."', 400, 2, 1)"));
+		$order = (int) $db->last_insert_id($db->prefix().'prelevement_bons');
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."prelevement_demande SET traite = 1, fk_prelevement_bons = ".$order." WHERE rowid = ".((int) $schedule->lines[0]->debitid)));
+		foreach (array(400.0 => 1, -400.0 => 0) as $amount => $nextinstallment) {	// The credit, then its rejection
+			$payment = new Paiement($db);
+			$payment->datepaye = $today;
+			$payment->amounts = array($invoice->id => $amount);
+			$payment->paiementid = $pre;
+			$payment->paiementcode = 'PRE';
+			$this->assertGreaterThan(0, $payment->create($user, 0), (string) $payment->error);
+			$this->assertSame(dol_print_date($schedule->lines[$nextinstallment]->date, 'dayrfc'), $this->getDueDay($invoice->id), 'Due date after a payment of '.$amount);
+			if ($amount > 0) {
+				$facture = new Facture($db);
+				$facture->fetch($invoice->id);
+				$this->assertSame(0, (int) $facture->paye, 'The invoice stays open');
+				$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET date_due = '".$db->idate(dol_time_plus_duree($today, 4, 'd'))."' WHERE rowid = ".((int) $schedule->lines[1]->id)));
+				$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
+				$this->assertGreaterThan(0, $installments->fetch('facture', $invoice->id)->lines[1]->debitid, 'The request of the next installment');
+				$schedule = $installments->fetch('facture', $invoice->id);
+			}
+		}
+		$this->assertSame(2, $this->countRows("SELECT COUNT(rowid) as nb FROM ".$db->prefix()."prelevement_demande WHERE fk_facture = ".((int) $invoice->id)));
 	}
 
 	/**
