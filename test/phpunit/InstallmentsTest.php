@@ -32,6 +32,7 @@ require_once dirname(__FILE__).'/../../class/actions_installments.class.php';
 require_once dirname(__FILE__).'/../../core/substitutions/functions_installments.lib.php';
 require_once dirname(__FILE__).'/../../core/triggers/interface_99_modInstallments_InstallmentsTriggers.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/pdf.lib.php';
+require_once DOL_DOCUMENT_ROOT.'/compta/bank/class/account.class.php';
 
 if (empty($user->id)) {
 	print "Load permissions for admin user nb 1\n";
@@ -164,7 +165,7 @@ class InstallmentsTest extends CommonClassTest
 		if ($this->savblockedlog !== null) {
 			$conf->modules['blockedlog'] = $this->savblockedlog;
 		}
-		unset($conf->global->MAIN_DISABLE_PDF_AUTOUPDATE, $conf->global->INSTALLMENTS_START_DATE, $conf->global->WITHDRAW_STRICT_CHECK_AMOUNT);
+		unset($conf->global->MAIN_DISABLE_PDF_AUTOUPDATE, $conf->global->INSTALLMENTS_START_DATE, $conf->global->INSTALLMENTS_DEBIT_START_DATE, $conf->global->WITHDRAW_STRICT_CHECK_AMOUNT);
 
 		$socs = "SELECT rowid FROM ".$db->prefix()."societe WHERE nom LIKE 'PSTEST%'";
 		$resql = $db->query("SELECT ref FROM ".$db->prefix()."facture WHERE fk_soc IN (".$socs.")");
@@ -196,7 +197,9 @@ class InstallmentsTest extends CommonClassTest
 			"DELETE FROM ".$db->prefix()."prelevement_bons WHERE ref LIKE 'PSTEST%'",
 			"DELETE FROM ".$db->prefix()."societe_remise_except WHERE fk_soc IN (".$socs.")",
 			"DELETE FROM ".$db->prefix()."element_element WHERE (sourcetype IN ('propal', 'commande') AND targettype = 'facture' AND fk_target IN (".$invoices."))",
+			"DELETE FROM ".$db->prefix()."element_element WHERE (sourcetype = 'facture' AND targettype IN ('propal', 'commande') AND fk_source IN (".$invoices."))",
 			"DELETE FROM ".$db->prefix()."facturedet WHERE fk_facture IN (".$invoices.")",
+			"UPDATE ".$db->prefix()."facture SET fk_facture_source = NULL WHERE fk_soc IN (".$socs.")",	// MySQL checks the key row by row
 			"DELETE FROM ".$db->prefix()."facture WHERE fk_soc IN (".$socs.")",
 			"DELETE FROM ".$db->prefix()."propaldet WHERE fk_propal IN (SELECT rowid FROM ".$db->prefix()."propal WHERE fk_soc IN (".$socs."))",
 			"DELETE FROM ".$db->prefix()."propal WHERE fk_soc IN (".$socs.")",
@@ -209,7 +212,7 @@ class InstallmentsTest extends CommonClassTest
 			"DELETE FROM ".$db->prefix()."c_installments_template WHERE code LIKE 'PSTEST%'",
 			"DELETE FROM ".$db->prefix()."user_rights WHERE fk_user IN (SELECT rowid FROM ".$db->prefix()."user WHERE login LIKE 'pstest%')",
 			"DELETE FROM ".$db->prefix()."user WHERE login LIKE 'pstest%'",
-			"DELETE FROM ".$db->prefix()."const WHERE name = 'INSTALLMENTS_START_DATE'",
+			"DELETE FROM ".$db->prefix()."const WHERE name IN ('INSTALLMENTS_START_DATE', 'INSTALLMENTS_DEBIT_START_DATE')",
 		);
 		foreach ($sqls as $sql) {
 			$this->assertTrue((bool) $db->query($sql), (string) $db->lasterror());
@@ -219,7 +222,8 @@ class InstallmentsTest extends CommonClassTest
 	}
 
 	/**
-	 * Version, number, tables and templates created when enabled, jobs disabled, date of the first run deleted with the module
+	 * Version, number, tables and templates created when enabled, jobs disabled, dates of the first runs kept when the module is updated
+	 * (disabled then enabled), warning at the activation
 	 *
 	 * @return void
 	 */
@@ -230,10 +234,11 @@ class InstallmentsTest extends CommonClassTest
 
 		$module = new modInstallments($db);
 
-		$this->assertSame(array('1.1.0', 231255, 'Guiltek', array(8, 1), 1, 1), array($module->version, $module->numero, $module->editor_name, $module->phpmin, $module->module_parts['triggers'], $module->module_parts['substitutions']));
+		$this->assertSame(array('1.2.0', 231255, 'Guiltek', array(8, 1), 1, 1), array($module->version, $module->numero, $module->editor_name, $module->phpmin, $module->module_parts['triggers'], $module->module_parts['substitutions']));
 		$this->assertSame(array('23125501', '23125502'), array($module->rights[0][0], $module->rights[1][0]), 'Not the rights 231251 and 231252 of the module Reminders');
 		$this->assertSame(array(0, 0), array($module->cronjobs[0]['status'], $module->cronjobs[1]['status']));
-		$this->assertSame(array('INSTALLMENTS_START_DATE', 1), array($module->const[0][0], $module->const[0][6]), 'A module enabled again does not invoice the past');
+		$this->assertSame(array('INSTALLMENTS_START_DATE', 0, 'INSTALLMENTS_DEBIT_START_DATE', 0), array($module->const[0][0], $module->const[0][6], $module->const[1][0], $module->const[1][6]), 'An update does not stop the jobs');
+		$this->assertNotSame('InstallmentsActivationWarning', $this->savlangs->trans($module->warnings_activation['always']), 'Translated');
 		$user = $this->savuser;
 		foreach ($module->tabs as $tab) {	// Their conditions go through dol_eval(), which refuses some functions (empty() hid all the tabs)
 			$this->assertTrue((bool) verifCond(explode(':', $tab)[4], '2'), $tab);
@@ -415,7 +420,7 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertSame(array(1 => 400.0, 2 => 100.0, 3 => 0.0), $installments->allocate($invoice, $lines));
 		$this->assertSame(array(1 => 300.0, 2 => 0.0, 3 => 0.0), $installments->allocate($invoice, $lines, 200.0), 'A payment being deleted');
 
-		$this->addCreditNote($socid, $invoice->id, 400.0);
+		$this->addDiscount($socid, $invoice->id, 400.0, Facture::TYPE_CREDIT_NOTE);
 		$this->assertSame(array(1 => 400.0, 2 => 400.0, 3 => 100.0), $installments->allocate($invoice, $lines), 'A credit note used pays too');
 
 		$lines[1]->status = InstallmentSchedule::STATUS_ABANDONED;
@@ -615,12 +620,14 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertSame(1, $this->countRows("SELECT COUNT(rowid) as nb FROM ".$db->prefix()."element_element WHERE sourcetype = 'commande' AND fk_source = ".((int) $order->id)." AND targettype = 'facture'"), 'Second run: nothing more');
 
 		// An author who may not validate invoices: the invoice of his schedule stays a draft, whatever the mode asked
+		$template = $this->createEmailTemplate('Invoice __REF__', 'Hello');
 		$author = new User($db);
 		$author->login = 'pstestnorights';
 		$author->lastname = 'PSTEST';
 		$this->assertGreaterThan(0, $author->create($user), (string) $author->error);
 		$other = $this->createOrder($socid, array(array(100, 20)));
-		$this->assertGreaterThan(0, $installments->save($user, $other, array(array('date' => $today, 'amount' => 120.0, 'mode' => 0, 'note' => '')), 1, InstallmentSchedule::INVOICE_SENT), $installments->error);
+		$this->assertSame(-1, $installments->save($user, $other, array(array('date' => $today, 'amount' => 120.0, 'mode' => 0, 'note' => '')), 1, InstallmentSchedule::INVOICE_SENT), 'Mode sent: a template chosen');
+		$this->assertGreaterThan(0, $installments->save($user, $other, array(array('date' => $today, 'amount' => 120.0, 'mode' => 0, 'note' => '')), 1, InstallmentSchedule::INVOICE_SENT, $template), $installments->error);
 		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_schedule SET fk_user_creat = ".((int) $author->id)." WHERE element = 'commande' AND fk_element = ".((int) $other->id)));
 		$otherschedule = $installments->fetch('commande', $other->id);
 		$this->assertSame(InstallmentSchedule::INVOICE_SENT, $otherschedule->invoice_mode);
@@ -633,7 +640,6 @@ class InstallmentsTest extends CommonClassTest
 
 		// Mode sent: validated, PDF and email to the billing contact
 		$hook = $this->captureMails();
-		$template = $this->createEmailTemplate('Invoice __REF__', 'Hello');
 		$invoiceid = $installments->createInvoice($user, (object) array_merge((array) $schedule, array('invoice_mode' => InstallmentSchedule::INVOICE_SENT, 'fk_email_template' => $template)), $schedule->lines[2]);
 		$this->assertGreaterThan(0, $invoiceid, $installments->error);
 		$invoice = new Facture($db);
@@ -730,6 +736,13 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET date_due = '".$db->idate(dol_time_plus_duree($today, 4, 'd'))."' WHERE rowid = ".((int) $schedule->lines[2]->id)));
 		$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
 		$this->assertSame(2, $this->countRows("SELECT COUNT(rowid) as nb FROM ".$db->prefix()."prelevement_demande WHERE fk_facture = ".((int) $invoice->id)), 'One request per installment');
+
+		// A schedule above its invoice (lowered after, not put to scale): never more asked than the rest to pay of the invoice
+		$small = $this->createInvoice($socid, array(array(100, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $small, array(array('date' => dol_time_plus_duree($today, 3, 'd'), 'amount' => 120.0, 'mode' => $pre, 'note' => ''))), $installments->error);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET amount = 400 WHERE fk_schedule IN (SELECT rowid FROM ".$db->prefix()."installments_schedule WHERE element = 'facture' AND fk_element = ".((int) $small->id).")"));
+		$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
+		$this->assertSame(120.0, (float) $this->countRows("SELECT amount as nb FROM ".$db->prefix()."prelevement_demande WHERE fk_facture = ".((int) $small->id)), 'Capped at the rest to pay');
 	}
 
 	/**
@@ -863,16 +876,16 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertSame(0, $hooks->afterPDFTotalTable(array('pdf' => $pdf, 'object' => $invoice, 'outputlangs' => $langs, 'index' => &$index, 'posy' => 200), $model, $action, null));
 		$this->assertSame(6, $index, 'The rows of the schedule before the payments');
 
-		$long = $this->createInvoice($this->createCustomer('pdflong'), array(array(3000, 20)));	// 36 installments, 6 paid: 30 left
+		$long = $this->createInvoice($this->createCustomer('pdflong'), array(array(3000, 20)));	// 36 installments, 6 paid: all printed, in two columns
 		$this->assertGreaterThan(0, $installments->save($this->savuser, $long, $installments->generate(3600.0, 36, 1, 0, dol_now())), $installments->error);
 		$this->addPayment($long->id, 600.0);
 		$long->fetch($long->id);
 		$model->heightforinfotot = 50;
 		$this->assertSame(0, $hooks->printUnderHeaderPDFline(array('object' => $long, 'outputlangs' => $langs), $model, $action, null));
-		$this->assertSame(94, $model->heightforinfotot, 'At most a title and 10 rows');
+		$this->assertSame(126, $model->heightforinfotot, 'A title and 18 rows of two installments');
 		$index = 2;
 		$this->assertSame(0, $hooks->afterPDFTotalTable(array('pdf' => $pdf, 'object' => $long, 'outputlangs' => $langs, 'index' => &$index, 'posy' => 100), $model, $action, null));
-		$this->assertSame(13, $index);
+		$this->assertSame(21, $index);
 
 		$other = $this->createInvoice($this->createCustomer('pdf2'), array(array(100, 20)));
 		$index = 2;
@@ -881,8 +894,8 @@ class InstallmentsTest extends CommonClassTest
 	}
 
 	/**
-	 * PDF of a proposal or an order: its schedule added to its public note while the PDF is made, the note given back after; nothing
-	 * when the note has the key __INSTALLMENTS__ or for a single installment
+	 * PDF of a proposal or an order: its schedule added to the public note of a copy the model prints, the document itself never changed
+	 * (even if the PDF fails); nothing when the note has the key __INSTALLMENTS__ or for a single installment
 	 *
 	 * @return void
 	 */
@@ -901,27 +914,31 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertGreaterThan(0, $installments->save($user, $proposal, $installments->generate(360.0, 3, 1, 0, dol_now())), $installments->error);
 		$parameters = array('object' => $proposal, 'outputlangs' => $langs);
 
-		$this->assertSame(0, $hooks->beforePDFCreation($parameters, $proposal, $action, null));
-		$this->assertStringStartsWith('Thanks', $proposal->note_public);
-		$this->assertSame(3, substr_count($proposal->note_public, '<tr>'), 'One row per installment');
+		$printed = $proposal;	// The variable of the model, by reference
+		$this->assertSame(0, $hooks->beforePDFCreation($parameters, $printed, $action, null));
+		$this->assertNotSame($proposal, $printed, 'The model prints a copy');
+		$this->assertStringStartsWith('Thanks', $printed->note_public);
+		$this->assertSame(3, substr_count($printed->note_public, '<tr>'), 'One row per installment');
+		$this->assertSame('Thanks', $proposal->note_public, 'The document is never changed, even if the PDF fails');
 		$this->assertSame(0, $hooks->afterPDFCreation($parameters, $model, $action, null));
-		$this->assertSame('Thanks', $proposal->note_public, 'Given back');
 
 		$proposal->note_public = 'Pay: __INSTALLMENTS__';
-		$hooks->beforePDFCreation($parameters, $proposal, $action, null);
-		$this->assertSame('Pay: __INSTALLMENTS__', $proposal->note_public, 'The key says where');
+		$printed = $proposal;
+		$hooks->beforePDFCreation($parameters, $printed, $action, null);
+		$this->assertSame('Pay: __INSTALLMENTS__', $printed->note_public, 'The key says where');
 
 		$order = $this->createOrder($socid, array(array(100, 20)));
 		$this->assertGreaterThan(0, $installments->save($user, $order, $installments->generate(120.0, 1, 1, 0, dol_now())), $installments->error);
-		$hooks->beforePDFCreation(array('object' => $order, 'outputlangs' => $langs), $order, $action, null);
-		$this->assertSame('', (string) $order->note_public, 'One installment: nothing');
+		$printed = $order;
+		$hooks->beforePDFCreation(array('object' => $order, 'outputlangs' => $langs), $printed, $action, null);
+		$this->assertSame('', (string) $printed->note_public, 'One installment: nothing');
 	}
 
 	/**
 	 * Import from the tables of the module Echeancier (temporary copies): expected payments of an invoice; installments of a proposal
-	 * invoiced by the old module, invoiced by hand (found: same customer and amount within 45 days, the invoice linked to the proposal
-	 * first, each invoice once) or not found (to check, past or future); lines without amount left out, missing document, preview
-	 * then import, nothing imported twice
+	 * invoiced by the old module, invoiced by hand and linked to the proposal (attached), an invoice of the customer only of the same
+	 * amount (suggested in the note, to check), or nothing found (to check, past or future); lines without amount left out, missing
+	 * document, payment mode of the document followed, preview then import, nothing imported twice
 	 *
 	 * @return void
 	 */
@@ -936,6 +953,9 @@ class InstallmentsTest extends CommonClassTest
 		$byhand = $this->createInvoice($socid, array(array(100, 20)));
 		$linked = $this->createInvoice($socid, array(array(100, 20)), array('propal' => $proposal->id));
 		$decoy = $this->createInvoice($socid, array(array(100, 20)));
+		$othersoc = $this->createCustomer('import2');	// Two installments, one invoice of the same amount: suggested once
+		$other = $this->createProposal($othersoc, array(array(200, 20, 1)));
+		$once = $this->createInvoice($othersoc, array(array(100, 20)));
 		$p = $db->prefix();
 		$past = $db->idate(dol_time_plus_duree(dol_now(), -40, 'd'));
 		$past2 = $db->idate(dol_time_plus_duree(dol_now(), -10, 'd'));
@@ -950,6 +970,9 @@ class InstallmentsTest extends CommonClassTest
 			"INSERT INTO ".$p."echeancier VALUES (1, 2, 1200, 3, ".((int) $invoice->id).", ".((int) $socid).", '".$past."', 0, 0)",
 			"INSERT INTO ".$p."echeancier VALUES (2, 1, 480, 4, ".((int) $proposal->id).", ".((int) $socid).", '".$past."', 0, 1)",
 			"INSERT INTO ".$p."echeancier VALUES (3, 1, 100, 1, 999999999, ".((int) $socid).", '".$past."', 0, 1)",
+			"INSERT INTO ".$p."echeancier VALUES (4, 1, 240, 2, ".((int) $other->id).", ".((int) $othersoc).", '".$past2."', 0, 1)",
+			"INSERT INTO ".$p."echeance VALUES (41, 4, 0, '".$past2."', 0, 0, 120, 0, 0, 1, NULL, NULL, NULL, NULL)",
+			"INSERT INTO ".$p."echeance VALUES (42, 4, 0, '".$future."', 0, 0, 120, 0, 0, 1, NULL, NULL, NULL, NULL)",
 			"INSERT INTO ".$p."echeance VALUES (11, 1, ".((int) $invoice->id).", '".$past."', 0, 1, 400, 400, 0, 2, NULL, NULL, NULL, NULL)",
 			"INSERT INTO ".$p."echeance VALUES (12, 1, ".((int) $invoice->id).", '".$past2."', 0, 0, 400, 0, 0, 2, NULL, NULL, NULL, NULL)",
 			"INSERT INTO ".$p."echeance VALUES (13, 1, ".((int) $invoice->id).", '".$future."', 0, 0, 400, 0, 0, 2, NULL, 'last', NULL, NULL)",
@@ -964,26 +987,61 @@ class InstallmentsTest extends CommonClassTest
 			$this->assertTrue((bool) $db->query($sql), (string) $db->lasterror());
 		}
 		$installments = new InstallmentsOldTables($db);
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."propal SET fk_mode_reglement = ".((int) dol_getIdFromCode($db, 'VIR', 'c_paiement', 'code', 'id', 1))." WHERE rowid = ".((int) $proposal->id)));
 
 		$report = $installments->import($user, true);
-		$this->assertSame(array(2, 7, 1, 2), array($report['schedules'], $report['lines'], $report['tocheck'], count($report['matched'])), $installments->error);
+		$this->assertSame(array(3, 9, 4, 1, 2), array($report['schedules'], $report['lines'], $report['tocheck'], count($report['matched']), count($report['suggested'])), $installments->error);
 		$this->assertCount(1, $report['skipped'], 'Missing document');
 		$this->assertSame(0, $installments->fetch('facture', $invoice->id), 'Preview only');
 
 		$report = $installments->import($user, false);
-		$this->assertSame(array(2, 7, 1, 2), array($report['schedules'], $report['lines'], $report['tocheck'], count($report['matched'])), $installments->error);
+		$this->assertSame(array(3, 9, 4, 1, 2), array($report['schedules'], $report['lines'], $report['tocheck'], count($report['matched']), count($report['suggested'])), $installments->error);
 		$schedule = $installments->fetch('facture', $invoice->id);
 		$this->assertSame(array(400.0, 400.0, 400.0), array_column($schedule->lines, 'amount'), 'Lines without amount left out');
 		$this->assertSame('last', $schedule->lines[2]->note);
 		$this->assertSame(dol_print_date($schedule->lines[0]->date, 'dayrfc'), $this->getDueDay($invoice->id), 'Due date: the next unpaid installment (nothing paid in Dolibarr)');
 		$schedule = $installments->fetch('propal', $proposal->id);
 		$this->assertSame(1, $schedule->billing);
-		$this->assertSame(array((int) $billed->id, (int) $byhand->id, (int) $linked->id, 0), array_column($schedule->lines, 'invoiceid'), 'The invoice linked to the proposal wins, the decoy stays free');
-		$this->assertSame(array(0, 0, 0, InstallmentSchedule::STATUS_TOCHECK), array_column($schedule->lines, 'status'), 'Not found, even to come: to check');
+		$this->assertSame(array((int) $billed->id, 0, (int) $linked->id, 0), array_column($schedule->lines, 'invoiceid'), 'Only the invoice linked to the proposal is attached');
+		$this->assertSame(array(0, InstallmentSchedule::STATUS_TOCHECK, 0, InstallmentSchedule::STATUS_TOCHECK), array_column($schedule->lines, 'status'), 'Suggested or not found, even to come: to check');
+		$this->assertStringContainsString($byhand->ref, $schedule->lines[1]->note, 'The suggestion in the note');
+		$this->assertStringStartsWith(InstallmentSchedule::CHECK_MARK, $schedule->lines[1]->note, 'Marked: never copied to an invoice');
+		$this->assertSame(array(0, 0, 0, 0), array_column($schedule->lines, 'mode'), 'The payment mode of the document, not a copy of it');
+		$notes = array_column($installments->fetch('propal', $other->id)->lines, 'note');
+		$this->assertSame(1, substr_count(implode('|', $notes), $once->ref), 'One invoice suggested for one installment only');
 
 		$report = $installments->import($user, false);
 		$this->assertSame(0, $report['schedules'], 'Nothing imported twice');
 		$drop = ($db->type == 'pgsql' ? "DROP TABLE " : "DROP TEMPORARY TABLE ");	// Without TEMPORARY, MySQL commits the transaction of the tests
+		$this->assertTrue((bool) $db->query($drop.$p."echeance"));
+		$this->assertTrue((bool) $db->query($drop.$p."echeancier"));
+	}
+
+	/**
+	 * Review of 13/11/2026 (D47): the tables of the module Echeancier have no entity, a document of another entity is left out by the import
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsImportOtherEntity()
+	{
+		$db = $this->savdb;
+		$p = $db->prefix();
+		$order = $this->createOrder($this->createCustomer('importentity'), array(array(100, 20)));
+		$sqls = array(
+			"UPDATE ".$p."commande SET entity = 2 WHERE rowid = ".((int) $order->id),
+			"CREATE TEMPORARY TABLE ".$p."echeancier (id integer, type integer, montant numeric(24,8), nombre integer, id_element integer, id_client integer, date_debut date, num integer, invoice integer)",
+			"CREATE TEMPORARY TABLE ".$p."echeance (rowid integer, fk_echeancier integer, fk_facture integer, date_reglement date, acompte integer, paye integer, montant numeric(24,8), montant_paye numeric(24,8), ecart numeric(24,8), type integer, fk_bank integer, note text, fk_prelevement integer, invoice integer)",
+			"INSERT INTO ".$p."echeancier VALUES (1, 3, 120, 1, ".((int) $order->id).", ".((int) $order->socid).", '".$db->idate(dol_now())."', 0, 1)",
+			"INSERT INTO ".$p."echeance VALUES (11, 1, 0, '".$db->idate(dol_now())."', 0, 0, 120, 0, 0, 3, NULL, NULL, NULL, NULL)",
+		);
+		foreach ($sqls as $sql) {
+			$this->assertTrue((bool) $db->query($sql), (string) $db->lasterror());
+		}
+		$installments = new InstallmentsOldTables($db);
+		$report = $installments->import($this->savuser, true);
+		$this->assertSame(array(0, 1), array($report['schedules'], count($report['skipped'])), 'Left out');
+		$this->assertStringContainsString($order->ref, $report['skipped'][0]);
+		$drop = ($db->type == 'pgsql' ? "DROP TABLE " : "DROP TEMPORARY TABLE ");
 		$this->assertTrue((bool) $db->query($drop.$p."echeance"));
 		$this->assertTrue((bool) $db->query($drop.$p."echeancier"));
 	}
@@ -1215,6 +1273,664 @@ class InstallmentsTest extends CommonClassTest
 	}
 
 	/**
+	 * The list gives the same amount paid as allocate() and the core: credit notes, deposits and excess received (a standard invoice) all pay
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsListPaidLikeCore()
+	{
+		$installments = new InstallmentSchedule($this->savdb);
+		$socid = $this->createCustomer('listpaid');
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$this->addDiscount($socid, $invoice->id, 400.0, Facture::TYPE_STANDARD);
+		$this->addDiscount($socid, $invoice->id, 100.0, Facture::TYPE_CREDIT_NOTE);
+		$this->addDiscount($socid, $invoice->id, 50.0, Facture::TYPE_DEPOSIT);
+		$this->addDiscount($socid, $invoice->id, 50.0, Facture::TYPE_SITUATION);
+		$invoice->fetch($invoice->id);
+		$schedule = $installments->fetch('facture', $invoice->id);
+
+		$this->assertSame(array(400.0, 200.0, 0.0), array_values($installments->allocate($invoice, $schedule->lines)));
+		$this->assertSame(array(400.0, 200.0, 0.0), array_column($installments->getInstallments($this->savuser, array('socid' => $socid)), 'paid'));
+	}
+
+	/**
+	 * Cash forecast of a bank account (hooks of compta/bank/treso.php): the module is registered for its context, the hooks return 0 and give
+	 * the query through the hook manager; one row per installment left to pay at its date with its rank, the invoice of the core gone when its
+	 * installments hold all it has to pay; the future balance is the same as without the hooks
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsForecastRows()
+	{
+		$db = $this->savdb;
+		$socid = $this->createCustomer('forecast');
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$other = $this->createInvoice($socid, array(array(500, 20)));	// Without schedule: the core keeps it as it is
+
+		$module = new modInstallments($db);
+		$this->assertContains('banktreso', $module->module_parts['hooks']);
+		$this->assertStringContainsString('banktreso', getDolGlobalString('MAIN_MODULE_INSTALLMENTS_HOOKS'), 'The hook contexts are written when the module is enabled: disable and enable it again after an update');
+		$hookmanager = new HookManager($db);
+		$hookmanager->initHooks(array('banktreso'));
+		$account = new Account($db);
+		$account->id = 900001;
+		$action = '';
+		$this->assertSame(0, $hookmanager->executeHooks('addMoreSQL', array(), $account, $action));
+		$this->assertTrue(isset($hookmanager->resArray['sql']) && is_string($hookmanager->resArray['sql']), 'One query from the module, not an array');
+
+		$with = $this->getForecastRows(900001, $socid);
+		$without = $this->getForecastRows(900001, $socid, false);
+		$this->assertEquals(array((int) $invoice->id => 1200.0, (int) $other->id => 600.0), $without['invoice']);
+		$this->assertEquals(array(400.0, 400.0, 400.0), $with['installment']);
+		$this->assertEquals(array((int) $other->id => 600.0), $with['invoice'], 'Only what the installments do not hold');
+		$this->assertSame(1, preg_match('/\(1\/3\).*\(2\/3\).*\(3\/3\)/', implode(' ', $with['labels'])), implode(' ', $with['labels']));
+		$this->assertEquals(1800.0, $with['balance']);
+		$this->assertEquals($without['balance'], $with['balance']);
+		$parameters = array('obj' => (object) array('family' => 'invoice', 'objid' => $invoice->id, 'total_ttc' => 1200), 'ref' => '', 'refcomp' => '', 'totalpayment' => 0);
+		$unused = null;
+		$this->assertSame(0, $hookmanager->executeHooks('moreFamily', $parameters, $unused, $action));
+		$this->assertEquals(1200.0, $hookmanager->resArray['totalpayment'], 'Given back by the hook manager: the installments hold all the invoice');
+
+		$schedule = (new InstallmentSchedule($db))->fetch('facture', $invoice->id);	// The first installment is late: it keeps its own date
+		$late = dol_time_plus_duree(dol_now(), -10, 'd');
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET date_due = '".$db->idate($late)."' WHERE rowid = ".((int) $schedule->lines[0]->id)));
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertSame(installmentsTestDay($late), $with['dates'][0]);
+		$this->assertEquals(array(400.0, 400.0, 400.0), $with['installment']);
+	}
+
+	/**
+	 * Cash forecast: each rest is what allocate() leaves, with payments, credit notes, deposits and excess received; the invoice of the core is
+	 * gone in each case (its installments hold what it has to pay, to the cent)
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsForecastPayments()
+	{
+		$installments = new InstallmentSchedule($this->savdb);
+		$cases = array(
+			'payment' => array(500.0, 0.0, Facture::TYPE_CREDIT_NOTE, array(300.0, 400.0)),
+			'credit note and payment' => array(100.0, 400.0, Facture::TYPE_CREDIT_NOTE, array(300.0, 400.0)),
+			'deposit' => array(0.0, 400.0, Facture::TYPE_DEPOSIT, array(400.0, 400.0)),
+			'excess received' => array(0.0, 500.0, Facture::TYPE_STANDARD, array(300.0, 400.0)),
+			'situation' => array(0.0, 800.0, Facture::TYPE_SITUATION, array(400.0)),
+		);
+		foreach ($cases as $name => $case) {
+			$socid = $this->createCustomer('forecastpay'.str_replace(' ', '', $name));
+			$invoice = $this->createScheduledInvoice($socid, 1000.0);
+			if ($case[0] > 0) {
+				$this->addPayment($invoice->id, $case[0]);
+			}
+			if ($case[1] > 0) {
+				$this->addDiscount($socid, $invoice->id, $case[1], $case[2]);
+			}
+			$invoice->fetch($invoice->id);
+			$schedule = $installments->fetch('facture', $invoice->id);
+			$paid = $installments->allocate($invoice, $schedule->lines);
+			$left = array();
+			foreach ($schedule->lines as $line) {
+				if (round($line->amount - $paid[$line->id], 2) > 0) {
+					$left[] = round($line->amount - $paid[$line->id], 2);
+				}
+			}
+
+			$with = $this->getForecastRows(900001, $socid);
+			$this->assertEquals($case[3], $with['installment'], $name);
+			$this->assertEquals($left, $with['installment'], $name.': what allocate() leaves');
+			$this->assertArrayNotHasKey((int) $invoice->id, $with['invoice'], $name.': the invoice of the core is gone (not the credit note it uses)');
+			$this->assertEquals($this->getForecastRows(900001, $socid, false)['balance'], $with['balance'], $name);
+		}
+
+		$socid = $this->createCustomer('forecastorder');	// The first installment moved after the others: the payment goes to the oldest date first
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$last = dol_time_plus_duree($schedule->lines[2]->date, 20, 'd');
+		$this->assertTrue((bool) $this->savdb->query("UPDATE ".$this->savdb->prefix()."installments_line SET date_due = '".$this->savdb->idate($last)."' WHERE rowid = ".((int) $schedule->lines[0]->id)));
+		$this->addPayment($invoice->id, 400.0);
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertSame(array(installmentsTestDay($schedule->lines[2]->date), installmentsTestDay($last)), $with['dates']);
+		$this->assertEquals(array(400.0, 400.0), $with['installment']);
+
+		$socid = $this->createCustomer('forecastcents');	// 100.00 in 3 installments, 66.67 paid: the rounding leaves nothing on the invoice
+		$invoice = $this->createScheduledInvoice($socid, 100 / 1.2);
+		$this->addPayment($invoice->id, 66.67);
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertEquals(array(33.33), $with['installment']);
+		$this->assertSame(array(), $with['invoice']);
+		$this->assertEquals(33.33, $with['balance']);
+	}
+
+	/**
+	 * Cash forecast: what the installments do not hold stays on the invoice of the core, so the future balance never changes: an abandoned
+	 * installment, all of them abandoned, a schedule that does not add up to the invoice, an invoice overpaid
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsForecastRest()
+	{
+		$db = $this->savdb;
+		$installments = new InstallmentSchedule($db);
+		$socid = $this->createCustomer('forecastrest1');
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET status = ".InstallmentSchedule::STATUS_ABANDONED." WHERE rowid = ".((int) $schedule->lines[1]->id)));
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertEquals(array(400.0, 400.0), $with['installment'], 'The abandoned installment has no row');
+		$this->assertSame(1, preg_match('/\(1\/3\).*\(3\/3\)/', implode(' ', $with['labels'])), 'Its rank is counted');
+		$this->assertEquals(array((int) $invoice->id => 400.0), $with['invoice'], 'Its amount stays on the invoice');
+		$this->assertEquals(1200.0, $with['balance']);
+
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET status = ".InstallmentSchedule::STATUS_ABANDONED." WHERE fk_schedule = ".((int) $schedule->id)));
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertSame(array(), $with['installment']);
+		$this->assertEquals(array((int) $invoice->id => 1200.0), $with['invoice'], 'All abandoned: the invoice as the core shows it');
+
+		$socid = $this->createCustomer('forecastrest2');
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET amount = 200 WHERE rowid = ".((int) $schedule->lines[2]->id)));
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertEquals(array(400.0, 400.0, 200.0), $with['installment']);
+		$this->assertEquals(array((int) $invoice->id => 200.0), $with['invoice'], 'The part of the invoice out of the schedule');
+		$this->assertEquals(1200.0, $with['balance']);
+
+		$socid = $this->createCustomer('forecastrest3');
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$this->addPayment($invoice->id, 1300.0);
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertSame(array(), $with['installment']);
+		$this->assertEquals(array((int) $invoice->id => -100.0), $with['invoice'], 'Overpaid: as the core shows it');
+		$this->assertEquals($this->getForecastRows(900001, $socid, false)['balance'], $with['balance']);
+
+		$socid = $this->createCustomer('forecastrest4');	// 1 400 of installments for an invoice of 1 200, paid in full but not closed: the core shows nothing
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET amount = 600 WHERE rowid = ".((int) $schedule->lines[2]->id)));
+		$this->addPayment($invoice->id, 1200.0);
+		$with = $this->getForecastRows(900001, $socid);
+		$this->assertSame(array(), $with['installment'], 'The installments never hold more than the rest of the invoice');
+		$this->assertSame(array(), $with['invoice']);
+		$this->assertEquals(0.0, $with['balance']);
+	}
+
+	/**
+	 * Cash forecast: only the invoices the core lists (validated, not paid, of the account or of none), schedules of invoices to pay (not the
+	 * ones that invoice an order or a proposal) of the entity; nothing from the hooks when there is nothing to add, and no other row changed
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsForecastScope()
+	{
+		$db = $this->savdb;
+		$prefix = $db->prefix();
+		$hooks = new ActionsInstallments($db);
+		$action = '';
+		$account = new Account($db);
+		$account->id = 900001;
+
+		$socid = $this->createCustomer('forecastscope');
+		$plain = $this->createInvoice($socid, array(array(100, 20)));
+		$this->assertSame(0, $hooks->addMoreSQL(array(), $account, $action, null));
+		$this->assertSame(array(), $hooks->results, 'No schedule: no query');
+		$this->assertSame(0, $hooks->moreFamily(array('obj' => (object) array('family' => 'invoice', 'objid' => $plain->id, 'total_ttc' => 120), 'totalpayment' => 0), $plain, $action, null));
+		$this->assertSame(array(), $hooks->results, 'An invoice without schedule is left to the core');
+
+		$cases = array(	// Update of the invoice or of its schedule, bank account looked at, rows of installments expected, rows of the invoice expected
+			'draft' => array("UPDATE ".$prefix."facture SET fk_statut = ".Facture::STATUS_DRAFT." WHERE rowid = __ID__", 900001, 0, array()),
+			'paid' => array("UPDATE ".$prefix."facture SET paye = 1, fk_statut = ".Facture::STATUS_CLOSED." WHERE rowid = __ID__", 900001, 0, array()),
+			'abandoned' => array("UPDATE ".$prefix."facture SET fk_statut = ".Facture::STATUS_ABANDONED." WHERE rowid = __ID__", 900001, 0, array()),
+			'closed with a reason' => array("UPDATE ".$prefix."facture SET fk_statut = ".Facture::STATUS_CLOSED." WHERE rowid = __ID__", 900001, 0, array()),
+			'flag paid only' => array("UPDATE ".$prefix."facture SET paye = 1 WHERE rowid = __ID__", 900001, 0, array()),
+			'other account' => array("UPDATE ".$prefix."facture SET fk_account = 900002 WHERE rowid = __ID__", 900001, 0, array()),
+			'this account' => array("UPDATE ".$prefix."facture SET fk_account = 900002 WHERE rowid = __ID__", 900002, 3, array()),
+			'no account' => array("UPDATE ".$prefix."facture SET fk_account = 0 WHERE rowid = __ID__", 900001, 3, array()),
+			'direct debit requested' => array("UPDATE ".$prefix."installments_line SET fk_prelevement_demande = 987654 WHERE fk_schedule IN (SELECT rowid FROM (SELECT rowid FROM ".$prefix."installments_schedule WHERE element = 'facture' AND fk_element = __ID__) as s)", 900001, 3, array()),
+			'billing' => array("UPDATE ".$prefix."installments_schedule SET billing = 1 WHERE fk_element = __ID__ AND element = 'facture'", 900001, 0, array(1200.0)),
+			'proposal with the same id' => array("UPDATE ".$prefix."installments_schedule SET element = 'propal' WHERE fk_element = __ID__ AND element = 'facture'", 900001, 0, array(1200.0)),
+			'other entity' => array("UPDATE ".$prefix."installments_schedule SET entity = 99 WHERE fk_element = __ID__ AND element = 'facture'", 900001, 0, array(1200.0)),
+			'other entity of the invoice' => array("UPDATE ".$prefix."facture SET entity = 99 WHERE rowid = __ID__", 900001, 0, array()),
+		);
+		foreach ($cases as $name => $case) {
+			$socid = $this->createCustomer('forecastscope'.str_replace(' ', '', $name));
+			$invoice = $this->createScheduledInvoice($socid, 1000.0);
+			$this->assertTrue((bool) $db->query(str_replace('__ID__', (string) ((int) $invoice->id), $case[0])), (string) $db->lasterror());
+			$with = $this->getForecastRows($case[1], $socid);
+			$this->assertCount($case[2], $with['installment'], $name);
+			$this->assertEquals($case[3], array_values($with['invoice']), $name);
+			$this->assertEquals($this->getForecastRows($case[1], $socid, false)['balance'], $with['balance'], $name.': the same future balance');
+		}
+		$this->assertSame(0, $hooks->addMoreSQL(array(), $plain, $action, null));
+		$this->assertSame(array(), $hooks->results, 'Not a bank account: no query');
+
+		$invoice = $this->createScheduledInvoice($this->createCustomer('forecastscopelast'), 1000.0);
+		$this->assertSame(0, $hooks->addMoreSQL(array(), $account, $action, null));
+		$this->assertTrue(isset($hooks->results['sql']));
+		$hooks->results = array();
+		foreach (array('invoice_supplier', 'social_contribution', 'salary', 'vat') as $family) {	// The other families of the page: the invoice with this id is not theirs
+			$this->assertSame(0, $hooks->moreFamily(array('obj' => (object) array('family' => $family, 'objid' => $invoice->id, 'ref' => 1, 'total_ttc' => 1200), 'totalpayment' => 0), $invoice, $action, null));
+			$this->assertSame(array(), $hooks->results, $family);
+		}
+		$this->assertSame(0, $hooks->moreFamily(array('obj' => (object) array('family' => 'invoice', 'objid' => $invoice->id, 'total_ttc' => 1200), 'totalpayment' => 0), $invoice, $action, null));
+		$this->assertSame(array('totalpayment' => 1200.0), $hooks->results, 'The family of the invoices is the one it changes');
+		$hooks->results = array();
+	}
+
+	/**
+	 * Cash forecast: one hook object read twice keeps nothing of the first reading (no query, the invoice left to the core)
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsForecastFreshState()
+	{
+		$db = $this->savdb;
+		$hooks = new ActionsInstallments($db);
+		$action = '';
+		$account = new Account($db);
+		$account->id = 900001;
+		$socid = $this->createCustomer('forecastfresh');
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+
+		$this->assertSame(0, $hooks->addMoreSQL(array(), $account, $action, null));
+		$this->assertTrue(isset($hooks->results['sql']));
+		$hooks->results = array();
+		$this->assertTrue((bool) $db->query("DELETE FROM ".$db->prefix()."installments_line WHERE fk_schedule IN (SELECT rowid FROM (SELECT rowid FROM ".$db->prefix()."installments_schedule WHERE element = 'facture' AND fk_element = ".((int) $invoice->id).") as s)"));
+		$this->assertSame(0, $hooks->addMoreSQL(array(), $account, $action, null));
+		$this->assertSame(array(), $hooks->results, 'No installment left: no query');
+		$this->assertSame(0, $hooks->moreFamily(array('obj' => (object) array('family' => 'invoice', 'objid' => $invoice->id, 'total_ttc' => 1200), 'totalpayment' => 500), $invoice, $action, null));
+		$this->assertSame(array(), $hooks->results, 'The invoice is not changed from the previous reading');
+	}
+
+	/**
+	 * Review of 13/11/2026 (D05, L28): never invoiced twice. A document invoiced in full by hand (invoice linked to it): its installment is
+	 * to check, why in its note; an abandoned invoice does not count, a credit note is deducted; an invoice of another kind given to an
+	 * installment: the last one in proportion, not the rest of each line; all invoiced: the document classified billed
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsNoDoubleInvoicing()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$socid = $this->createCustomer('double');
+		$today = dol_now();
+
+		$proposal = $this->createProposal($socid, array(array(1000, 20, 1)));
+		$this->assertGreaterThan(0, $installments->save($user, $proposal, $installments->generate(1200.0, 3, 1, 0, $today), 1), $installments->error);
+		$byhand = $this->createInvoice($socid, array(array(1000, 20)), array('propal' => $proposal->id));
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$this->assertSame(-1, $installments->createInvoice($user, $schedule, $schedule->lines[0]), 'Invoiced in full by hand');
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$this->assertSame(array(0, InstallmentSchedule::STATUS_TOCHECK), array($schedule->lines[0]->invoiceid, $schedule->lines[0]->status));
+		$this->assertStringStartsWith(InstallmentSchedule::CHECK_MARK, $schedule->lines[0]->note, 'Why, in its note');
+
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET fk_statut = ".Facture::STATUS_ABANDONED." WHERE rowid = ".((int) $byhand->id)));
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[0]->id, -2), $installments->error);
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$this->assertGreaterThan(0, $installments->createInvoice($user, $schedule, $schedule->lines[0]), 'An abandoned invoice does not count: '.$installments->error);
+		$second = $this->createInvoice($socid, array(array(666.67, 20)), array('propal' => $proposal->id));	// 800 more by hand: 1200 invoiced
+		$this->assertSame(-1, $installments->createInvoice($user, $schedule, $schedule->lines[1]));
+		$credit = $this->createInvoice($socid, array(array(-666.67, 20)));
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET type = ".Facture::TYPE_CREDIT_NOTE.", fk_facture_source = ".((int) $second->id)." WHERE rowid = ".((int) $credit->id)));
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[1]->id, -2), $installments->error);
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$this->assertGreaterThan(0, $installments->createInvoice($user, $schedule, $schedule->lines[1]), 'The credit note of the invoice made by hand is deducted: '.$installments->error);
+
+		// An invoice of products given to an installment of services: the last installment in proportion, never the rest of the services
+		$services = $this->createProposal($socid, array(array(1000, 20, 1)));
+		$this->assertGreaterThan(0, $installments->save($user, $services, $installments->generate(1200.0, 3, 1, 0, $today), 1), $installments->error);
+		$products = $this->createInvoice($socid, array(array(333.33, 20)));
+		$schedule = $installments->fetch('propal', $services->id);
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[0]->id, $products->id), $installments->error);
+		$ids = array($products->id);
+		foreach (array(1, 2) as $i) {
+			$schedule = $installments->fetch('propal', $services->id);
+			$ids[] = $installments->createInvoice($user, $schedule, $schedule->lines[$i]);
+			$this->assertGreaterThan(0, end($ids), $installments->error);
+		}
+		$this->assertSame(1200.0, (float) $this->countRows("SELECT SUM(total_ttc) as nb FROM ".$db->prefix()."facture WHERE rowid IN (".implode(',', array_map('intval', $ids)).")"), 'The quote, not 1600');
+		$services->fetch($services->id);
+		$this->assertSame(Propal::STATUS_BILLED, (int) $services->status, 'All its installments invoiced: billed');
+
+		$given = $this->createProposal($socid, array(array(1000, 20, 1)));	// An invoice of the whole proposal given to its first installment
+		$this->assertGreaterThan(0, $installments->save($user, $given, $installments->generate(1200.0, 3, 1, 0, $today), 1), $installments->error);
+		$whole = $this->createInvoice($socid, array(array(1000, 20)));
+		$schedule = $installments->fetch('propal', $given->id);
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[0]->id, $whole->id), $installments->error);
+		$schedule = $installments->fetch('propal', $given->id);
+		$this->assertSame(-1, $installments->createInvoice($user, $schedule, $schedule->lines[1]), 'The invoices of its installments count too');
+		$drafts = array();
+		foreach ($installments->getInstallments($user, array('socid' => $socid, 'type' => 'billing')) as $row) {
+			if ($row->fk_element == $services->id && $row->element == 'propal') {
+				$drafts[] = $row->invoicedraft;
+			}
+		}
+		$this->assertSame(array(false, true, true), $drafts, 'The invoices made by the module are drafts: said in the list');
+
+		$order = $this->createOrder($socid, array(array(100, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $order, array(array('date' => $today, 'amount' => 120.0, 'mode' => 0, 'note' => '')), 1), $installments->error);
+		$schedule = $installments->fetch('commande', $order->id);
+		$this->assertGreaterThan(0, $installments->createInvoice($user, $schedule, $schedule->lines[0]), $installments->error);
+		$order->fetch($order->id);
+		$this->assertSame(1, (int) $order->billed, 'The order too');
+
+		$reverse = $this->createOrder($socid, array(array(100, 20)));	// An invoice linked the other way (invoice to order), as some modules do
+		$this->assertGreaterThan(0, $installments->save($user, $reverse, array(array('date' => $today, 'amount' => 120.0, 'mode' => 0, 'note' => '')), 1), $installments->error);
+		$linked = $this->createInvoice($socid, array(array(100, 20)));
+		$this->assertTrue((bool) $db->query("INSERT INTO ".$db->prefix()."element_element (fk_source, sourcetype, fk_target, targettype) VALUES (".((int) $linked->id).", 'facture', ".((int) $reverse->id).", 'commande')"));
+		$schedule = $installments->fetch('commande', $reverse->id);
+		$this->assertSame(-1, $installments->createInvoice($user, $schedule, $schedule->lines[0]), 'Linked the other way: counted');
+	}
+
+	/**
+	 * Second review of 13/11/2026: the reasons of a check never on the invoice, even after the form wrote them on one line; an invoiced
+	 * installment to check is cleared by the validation of its invoice by hand, or by "Checked", its invoice kept; the last installment
+	 * linked by hand makes the proposal billed
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsSecondReview()
+	{
+		global $conf, $langs;
+
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$p = $db->prefix();
+		$installments = new InstallmentSchedule($db);
+		$socid = $this->createCustomer('review2');
+		$proposal = $this->createProposal($socid, array(array(1000, 20, 1)));
+		$this->assertGreaterThan(0, $installments->save($user, $proposal, $installments->generate(1200.0, 2, 1, 0, dol_now()), 1), $installments->error);
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$note = 'My note\n'.InstallmentSchedule::CHECK_MARK.' Reason of the check';	// '\n' written as is by the form of 1.1.0
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."installments_line SET note = '".$db->escape($note)."' WHERE rowid = ".((int) $schedule->lines[0]->id)));
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$invoiceid = $installments->createInvoice($user, $schedule, $schedule->lines[0]);
+		$this->assertGreaterThan(0, $invoiceid, $installments->error);
+		$resql = $db->query("SELECT description FROM ".$p."facturedet WHERE fk_facture = ".((int) $invoiceid));
+		$desc = (string) $db->fetch_object($resql)->description;
+		$this->assertStringContainsString('My note', $desc);
+		$this->assertStringNotContainsString('Reason of the check', $desc, 'Never sent to the customer');
+
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."installments_line SET status = ".InstallmentSchedule::STATUS_TOCHECK." WHERE rowid = ".((int) $schedule->lines[0]->id)));
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."installments_schedule SET invoice_mode = ".InstallmentSchedule::INVOICE_VALIDATED." WHERE rowid = ".((int) $schedule->id)));
+		$invoice = new Facture($db);
+		$invoice->fetch($invoiceid);
+		$trigger = new InterfaceInstallmentsTriggers($db);
+		$this->assertSame(0, $trigger->runTrigger('BILL_VALIDATE', $invoice, $user, $langs, $conf), $trigger->error);
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$this->assertSame(array($invoiceid, InstallmentSchedule::STATUS_OPEN), array($schedule->lines[0]->invoiceid, $schedule->lines[0]->status), 'Validated by hand: no longer to check');
+		$this->assertTrue((bool) $db->query("UPDATE ".$p."installments_line SET status = ".InstallmentSchedule::STATUS_TOCHECK." WHERE rowid = ".((int) $schedule->lines[0]->id)));
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[0]->id, -2), $installments->error);
+		$schedule = $installments->fetch('propal', $proposal->id);
+		$this->assertSame(array($invoiceid, InstallmentSchedule::STATUS_OPEN), array($schedule->lines[0]->invoiceid, $schedule->lines[0]->status), 'Checked: its invoice kept');
+		$resql = $db->query("SELECT label FROM ".$p."actioncomm WHERE code = 'AC_INSTALLMENTS' AND fk_element = ".((int) $proposal->id)." ORDER BY id DESC".$db->plimit(1));
+		$this->assertSame($langs->transnoentities('InstallmentsEventChecked', dol_print_date($schedule->lines[0]->date, 'day')), (string) $db->fetch_object($resql)->label, 'The event says it was checked, not invoiced again');
+
+		$byhand = $this->createInvoice($socid, array(array(500, 20)));
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[1]->id, $byhand->id), $installments->error);
+		$proposal->fetch($proposal->id);
+		$this->assertSame(Propal::STATUS_BILLED, (int) $proposal->status, 'Its last installment linked by hand: billed');
+	}
+
+	/**
+	 * Review of 13/11/2026 (D06, B2): a schedule made on a draft whose total changed is put to the scale of the invoice at its validation
+	 * (same dates, the paid installment kept); a mass payment never pays more than what the invoice has left to pay
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsFollowsTheInvoice()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$trigger = new InterfaceInstallmentsTriggers($db);
+		$socid = $this->createCustomer('follow');
+		$invoice = $this->createScheduledInvoice($socid, 1000.0);
+		$dates = array_column($installments->fetch('facture', $invoice->id)->lines, 'date');
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET total_ht = 500, total_tva = 100, total_ttc = 600 WHERE rowid = ".((int) $invoice->id)));
+		$invoice->fetch($invoice->id);
+		$this->assertSame(0, $trigger->runTrigger('BILL_VALIDATE', $invoice, $user, $this->savlangs, $this->savconf), $trigger->error);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$this->assertSame(array(200.0, 200.0, 200.0), array_column($schedule->lines, 'amount'));
+		$this->assertSame($dates, array_column($schedule->lines, 'date'), 'Same dates');
+
+		$paid = $this->createScheduledInvoice($socid, 1000.0);
+		$this->addPayment($paid->id, 400.0);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET total_ht = 833.33, total_tva = 166.67, total_ttc = 1000 WHERE rowid = ".((int) $paid->id)));
+		$paid->fetch($paid->id);
+		$this->assertSame(0, $trigger->runTrigger('BILL_VALIDATE', $paid, $user, $this->savlangs, $this->savconf), $trigger->error);
+		$this->assertSame(array(400.0, 300.0, 300.0), array_column($installments->fetch('facture', $paid->id)->lines, 'amount'), 'The paid installment stays');
+
+		$stale = $this->createScheduledInvoice($socid, 1000.0);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET total_ht = 500, total_tva = 100, total_ttc = 600 WHERE rowid = ".((int) $stale->id)));
+		$resql = $db->query("SELECT MIN(rowid) as id FROM ".$db->prefix()."bank_account WHERE clos = 0 AND courant = 1");
+		$account = (int) $db->fetch_object($resql)->id;
+		$ids = array_column($installments->fetch('facture', $stale->id)->lines, 'id');
+		$this->assertSame(1, $installments->recordPayments($user, $ids, dol_now(), (int) dol_getIdFromCode($db, 'VIR', 'c_paiement', 'code', 'id', 1), $account, 'VIR-PSTEST'), $installments->error);
+		$this->assertSame(600.0, (float) $this->countRows("SELECT SUM(amount) as nb FROM ".$db->prefix()."paiement_facture WHERE fk_facture = ".((int) $stale->id)), 'What the invoice has left to pay, not 1200');
+		$resql = $db->query("SELECT p.num_paiement FROM ".$db->prefix()."paiement as p INNER JOIN ".$db->prefix()."paiement_facture as pf ON pf.fk_paiement = p.rowid WHERE pf.fk_facture = ".((int) $stale->id));
+		$this->assertSame('VIR-PSTEST', (string) $db->fetch_object($resql)->num_paiement, 'The reference of the transfer');
+	}
+
+	/**
+	 * Review of 13/11/2026 (D07, L26): a mass payment skips an invoice whose direct debit is in progress (request waiting, or in an order not
+	 * credited yet), and says it; once the order is credited, it pays what is left
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsPaymentsWithDirectDebit()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$invoice = $this->createInvoice($this->createCustomer('massdebit'), array(array(1000, 20)));
+		$pre = (int) dol_getIdFromCode($db, 'PRE', 'c_paiement', 'code', 'id', 1);
+		$lines = array();
+		foreach (array(3, 33, 63) as $days) {
+			$lines[] = array('date' => dol_time_plus_duree(dol_now(), $days, 'd'), 'amount' => 400.0, 'mode' => $pre, 'note' => '');
+		}
+		$this->assertGreaterThan(0, $installments->save($user, $invoice, $lines), $installments->error);
+		$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
+		$schedule = $installments->fetch('facture', $invoice->id);
+		$resql = $db->query("SELECT MIN(rowid) as id FROM ".$db->prefix()."bank_account WHERE clos = 0 AND courant = 1");
+		$account = (int) $db->fetch_object($resql)->id;
+		$vir = (int) dol_getIdFromCode($db, 'VIR', 'c_paiement', 'code', 'id', 1);
+
+		$this->assertSame(0, $installments->recordPayments($user, array($schedule->lines[0]->id), dol_now(), $vir, $account), 'Request waiting');
+		$this->assertCount(1, $installments->errors, 'Said');
+		$this->assertTrue((bool) $db->query("INSERT INTO ".$db->prefix()."prelevement_bons (ref, entity, datec, amount, statut, credite) VALUES ('PSTEST2', 1, '".$db->idate(dol_now())."', 400, 1, 0)"));
+		$order = (int) $db->last_insert_id($db->prefix().'prelevement_bons');
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."prelevement_demande SET traite = 1, fk_prelevement_bons = ".$order." WHERE rowid = ".((int) $schedule->lines[0]->debitid)));
+		$this->assertSame(0, $installments->recordPayments($user, array($schedule->lines[0]->id), dol_now(), $vir, $account), 'In an order sent to the bank');
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."prelevement_bons SET statut = 2, credite = 1 WHERE rowid = ".$order));
+		$this->assertSame(1, $installments->recordPayments($user, array($schedule->lines[0]->id), dol_now(), $vir, $account), 'Credited: no longer in progress');
+	}
+
+	/**
+	 * Review of 13/11/2026 (D18): an installment to check is never invoiced, by hand or by the job; a new calculation keeps it and the
+	 * abandoned one; once checked, it is invoiced again ("Invoice again", only for one to check); each of these actions asks the right to
+	 * create invoices and writes an event on the document (D24); "Already invoiced" refuses an invoice smaller than the installment
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsToCheckProtected()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$socid = $this->createCustomer('tocheck');
+		$order = $this->createOrder($socid, array(array(250, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $order, $installments->generate(300.0, 3, 1, 0, dol_now()), 1), $installments->error);
+		$schedule = $installments->fetch('commande', $order->id);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET status = ".InstallmentSchedule::STATUS_TOCHECK." WHERE rowid = ".((int) $schedule->lines[0]->id)));
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET status = ".InstallmentSchedule::STATUS_ABANDONED." WHERE rowid = ".((int) $schedule->lines[1]->id)));
+		$schedule = $installments->fetch('commande', $order->id);
+
+		$this->assertSame(-1, $installments->createInvoice($user, $schedule, $schedule->lines[0]), 'To check: never invoiced');
+		$this->assertSame(array($schedule->lines[0]->id, $schedule->lines[1]->id), array_keys($installments->getKept($order, $schedule)), 'Kept by a new calculation');
+		$this->assertSame(-1, $installments->settle($user, $schedule->lines[1]->id, -2), 'Only one to check is invoiced again');
+		$small = $this->createInvoice($socid, array(array(8.33, 20)));
+		$this->assertSame(-1, $installments->settle($user, $schedule->lines[0]->id, $small->id), '10 do not settle 100');
+
+		$clerk = new User($db);	// May write schedules, not create invoices
+		$clerk->id = $user->id;
+		$clerk->rights = (object) array('installments' => (object) array('write' => 1, 'read' => 1));
+		$this->assertSame(-1, $installments->settle($clerk, $schedule->lines[0]->id, -2), 'A billing decision');
+
+		$this->assertSame(1, $installments->settle($user, $schedule->lines[0]->id, -2), $installments->error);
+		$schedule = $installments->fetch('commande', $order->id);
+		$this->assertGreaterThan(0, $installments->createInvoice($user, $schedule, $schedule->lines[0]), $installments->error);
+		$this->assertSame(1, $this->countRows("SELECT COUNT(id) as nb FROM ".$db->prefix()."actioncomm WHERE code = 'AC_INSTALLMENTS' AND elementtype = 'order' AND fk_element = ".((int) $order->id)), 'An event on the order');
+
+		$rep = new User($db);	// Reads the invoices, not the orders: their installments not listed
+		$rep->id = $user->id;
+		$rep->rights = (object) array('facture' => (object) array('lire' => 1), 'societe' => (object) array('client' => (object) array('voir' => 1)));
+		$this->assertCount(0, $installments->getInstallments($rep, array('socid' => $socid)));
+		$this->assertCount(3, $installments->getInstallments($user, array('socid' => $socid)));
+	}
+
+	/**
+	 * Review of 13/11/2026 (D19, L27): the job of the direct debits never asks for a disputed invoice, nor for an installment due before its
+	 * first run; an installment without its own mode follows the one of the invoice
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsDirectDebitGuards()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$socid = $this->createCustomer('debitguards');
+		$pre = (int) dol_getIdFromCode($db, 'PRE', 'c_paiement', 'code', 'id', 1);
+		$vir = (int) dol_getIdFromCode($db, 'VIR', 'c_paiement', 'code', 'id', 1);
+		$today = dol_now();
+		$invoices = array();
+		foreach (array('disputed' => array(-3, 2), 'past' => array(-3, 2), 'transfer' => array(2, 33)) as $case => $days) {
+			$invoices[$case] = $this->createInvoice($socid, array(array(100, 20)));
+			$lines = array(array('date' => dol_time_plus_duree($today, $days[0], 'd'), 'amount' => 60.0, 'mode' => 0, 'note' => ''), array('date' => dol_time_plus_duree($today, $days[1], 'd'), 'amount' => 60.0, 'mode' => 0, 'note' => ''));
+			$this->assertGreaterThan(0, $installments->save($user, $invoices[$case], $lines), $installments->error);
+			$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET fk_mode_reglement = ".($case == 'transfer' ? $vir : $pre).($case == 'disputed' ? ", dispute_status = 1" : "")." WHERE rowid = ".((int) $invoices[$case]->id)));
+		}
+		$this->assertSame(0, $installments->createDirectDebits(), $installments->output);
+		$this->assertSame(dol_print_date(dol_get_first_hour($today), 'dayrfc'), dol_print_date(getDolGlobalInt('INSTALLMENTS_DEBIT_START_DATE'), 'dayrfc'), 'Date of the first run');
+		$this->assertSame(0, $this->countRows("SELECT COUNT(rowid) as nb FROM ".$db->prefix()."prelevement_demande WHERE fk_facture IN (".((int) $invoices['disputed']->id).", ".((int) $invoices['transfer']->id).")"), 'Disputed, or paid by transfer');
+		$schedule = $installments->fetch('facture', $invoices['past']->id);
+		$this->assertSame(array(false, true), array($schedule->lines[0]->debitid > 0, $schedule->lines[1]->debitid > 0), 'Not the installment due before the first run');
+	}
+
+	/**
+	 * Review of 13/11/2026 (D22): the mode "validated and sent" needs a template chosen; an invoice that could not be sent puts its installment
+	 * to check (why in its note, never on the invoice), until the invoice is sent from its card
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsSendFailureToCheck()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$trigger = new InterfaceInstallmentsTriggers($db);
+		$socid = $this->createCustomer('sendfail');
+		$order = $this->createOrder($socid, array(array(200, 20)));
+		$lines = array(array('date' => dol_now(), 'amount' => 120.0, 'mode' => 0, 'note' => 'Deposit'), array('date' => dol_time_plus_duree(dol_now(), 30, 'd'), 'amount' => 120.0, 'mode' => 0, 'note' => ''));
+		$this->assertSame(-1, $installments->save($user, $order, $lines, 1, InstallmentSchedule::INVOICE_SENT, -1), '"Default": the first public template of position 0');
+		$this->assertGreaterThan(0, $installments->save($user, $order, $lines, 1, InstallmentSchedule::INVOICE_VALIDATED), $installments->error);
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_schedule SET invoice_mode = ".InstallmentSchedule::INVOICE_SENT.", fk_email_template = 0 WHERE element = 'commande' AND fk_element = ".((int) $order->id)));	// Saved by 1.1.0
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."installments_line SET note = '".$db->escape("Deposit\n".InstallmentSchedule::CHECK_MARK." checked before")."' WHERE note = 'Deposit' AND fk_schedule = (SELECT rowid FROM ".$db->prefix()."installments_schedule WHERE element = 'commande' AND fk_element = ".((int) $order->id).")"));
+		$schedule = $installments->fetch('commande', $order->id);
+		$this->createEmailTemplate('Invoice __REF__', 'Anyone');	// A public template is there: still never "the first one found"
+		$hook = $this->captureMails();
+
+		$invoiceid = $installments->createInvoice($user, $schedule, $schedule->lines[0]);
+		$this->assertGreaterThan(0, $invoiceid, $installments->error);
+		$invoice = new Facture($db);
+		$invoice->fetch($invoiceid);
+		$this->assertSame(Facture::STATUS_VALIDATED, (int) $invoice->status, implode(', ', $installments->errors));
+		$this->assertStringNotContainsString(InstallmentSchedule::CHECK_MARK, $invoice->lines[0]->desc);
+		$this->assertStringContainsString('Deposit', $invoice->lines[0]->desc, 'The note of the user on the invoice');
+		$schedule = $installments->fetch('commande', $order->id);
+		$this->assertSame(array(), $hook->mails, 'Not sent');
+		$this->assertSame('tocheck', $installments->getState($schedule, $schedule->lines[0], 0.0, dol_now()), 'Not sent: to check');
+		$this->assertStringContainsString(InstallmentSchedule::CHECK_MARK, $schedule->lines[0]->note, 'Why');
+
+		$this->assertSame(0, $trigger->runTrigger('BILL_SENTBYMAIL', $invoice, $user, $this->savlangs, $this->savconf));
+		$schedule = $installments->fetch('commande', $order->id);
+		$this->assertSame('invoiced', $installments->getState($schedule, $schedule->lines[0], 0.0, dol_now()), 'Sent from its card');
+	}
+
+	/**
+	 * Review of 13/11/2026 (D21): the form refuses an installment typed before the date of the document, or without amount, but not an
+	 * installment saved again unchanged (a schedule copied from an order keeps its dates)
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsCheckLines()
+	{
+		$installments = new InstallmentSchedule($this->savdb);
+		$invoice = $this->createInvoice($this->createCustomer('checklines'), array(array(100, 20)));
+		$before = dol_time_plus_duree((int) $invoice->date, -10, 'd');
+		$after = dol_time_plus_duree((int) $invoice->date, 10, 'd');
+
+		$this->assertSame('', $installments->checkLines($invoice, array(array('date' => (int) $invoice->date, 'amount' => 60.0), array('date' => $after, 'amount' => 60.0))));
+		$this->assertNotSame('', $installments->checkLines($invoice, array(array('date' => $before, 'amount' => 60.0))), 'Before the invoice');
+		$this->assertNotSame('', $installments->checkLines($invoice, array(array('date' => $after, 'amount' => 0.0))), 'No amount');
+		$existing = array(7 => (object) array('id' => 7, 'date' => $before));
+		$this->assertSame('', $installments->checkLines($invoice, array(array('id' => 7, 'date' => $before, 'amount' => 60.0)), $existing), 'Saved again unchanged');
+		$this->assertNotSame('', $installments->checkLines($invoice, array(array('id' => 7, 'date' => dol_time_plus_duree($before, 1, 'd'), 'amount' => 60.0)), $existing), 'Moved, still before');
+	}
+
+	/**
+	 * Review of 13/11/2026 (D39, D23): the invoice of an installment says what is sold (the designations of the lines of the document) and
+	 * is in the currency and at the rate of the document; the PDF and the key __INSTALLMENTS__ show the installments in that currency;
+	 * the payment terms are printed "as per the schedule" while the PDF is made (D20), the text of the language given back after
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsInvoiceAndPdfOfTheDocument()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$langs = $this->savlangs;
+		$installments = new InstallmentSchedule($db);
+		$socid = $this->createCustomer('designation');
+		$proposal = $this->createProposal($socid, array(array(800, 20, 1), array(200, 20, 1)));
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."propaldet SET description = 'Hosting 2027' WHERE fk_propal = ".((int) $proposal->id)." AND total_ht = 800"));
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."propaldet SET description = 'Maintenance' WHERE fk_propal = ".((int) $proposal->id)." AND total_ht = 200"));
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."propal SET multicurrency_code = 'USD', multicurrency_tx = 1.2, fk_cond_reglement = 1 WHERE rowid = ".((int) $proposal->id)));
+		$proposal->fetch($proposal->id);
+		$this->assertGreaterThan(0, $installments->save($user, $proposal, $installments->generate(1200.0, 2, 1, 0, dol_now()), 1), $installments->error);
+		$schedule = $installments->fetch('propal', $proposal->id);
+
+		$invoice = new Facture($db);
+		$invoice->fetch($installments->createInvoice($user, $schedule, $schedule->lines[0], InstallmentSchedule::INVOICE_DRAFT));
+		$this->assertStringContainsString('Hosting 2027, Maintenance', $invoice->lines[0]->desc, 'What is sold');
+		$this->assertSame(array('USD', 1.2), array((string) $invoice->multicurrency_code, (float) $invoice->multicurrency_tx), 'The currency of the proposal');
+		$this->assertSame(720.0, (float) price2num($invoice->multicurrency_total_ttc, 'MT'));
+
+		$saved = $this->savconf->modules['multicurrency'] ?? null;
+		$this->savconf->modules['multicurrency'] = 'multicurrency';
+		$hooks = new ActionsInstallments($db);
+		$printed = $proposal;
+		$action = '';
+		$this->assertSame(0, $hooks->beforePDFCreation(array('object' => $proposal, 'outputlangs' => $langs), $printed, $action, null));
+		$substitutions = array();
+		installments_completesubstitutionarray($substitutions, $langs, $proposal);
+		if ($saved === null) {
+			unset($this->savconf->modules['multicurrency']);
+		} else {
+			$this->savconf->modules['multicurrency'] = $saved;
+		}
+		$this->assertStringContainsString(price(720.0, 0, $langs, 1, -1, -1, 'USD'), $printed->note_public, 'In dollars');
+		$this->assertStringContainsString(price(720.0, 0, $langs, 1, -1, -1, 'USD'), $substitutions['__INSTALLMENTS__']);
+
+		$key = 'PaymentCondition'.$proposal->cond_reglement_code;
+		$this->assertSame($langs->transnoentities('InstallmentsPdfPaymentTerms'), $langs->transnoentities($key), 'As per the schedule while the PDF is made');
+		$model = null;
+		$this->assertSame(0, $hooks->afterPDFCreation(array('object' => $proposal), $model, $action, null));
+		$this->assertNotSame($langs->transnoentities('InstallmentsPdfPaymentTerms'), $langs->transnoentities($key), 'Given back');
+	}
+
+	/**
 	 * Replace the sending of emails by a hook that records them
 	 *
 	 * @return CommonHookActions	Hook, with the recipients and subject of each email in ->mails
@@ -1400,21 +2116,116 @@ class InstallmentsTest extends CommonClassTest
 	}
 
 	/**
-	 * A credit note used by an invoice, by SQL
+	 * A discount used by an invoice as a payment, by SQL: a credit note, a deposit, the excess received of a standard invoice or a situation
 	 *
 	 * @param	int		$socid		Customer
 	 * @param	int		$id			Invoice that uses it
 	 * @param	float	$amount		Amount including tax
+	 * @param	int		$type		Type of the invoice it comes from (Facture::TYPE_*)
 	 * @return	void
 	 */
-	private function addCreditNote($socid, $id, $amount)
+	private function addDiscount($socid, $id, $amount, $type)
 	{
 		$db = $this->savdb;
-		$creditnote = $this->createInvoice($socid, array(array(-$amount / 1.2, 20)));
-		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET type = ".Facture::TYPE_CREDIT_NOTE." WHERE rowid = ".((int) $creditnote->id)));
+		$source = $this->createInvoice($socid, array(array(-$amount / 1.2, 20)));
+		$this->assertTrue((bool) $db->query("UPDATE ".$db->prefix()."facture SET type = ".((int) $type)." WHERE rowid = ".((int) $source->id)));
 		$sql = "INSERT INTO ".$db->prefix()."societe_remise_except (entity, fk_soc, datec, amount_ht, amount_tva, amount_ttc, tva_tx, fk_user, fk_facture_source, fk_facture, description)";
-		$sql .= " VALUES (1, ".((int) $socid).", '".$db->idate(dol_now())."', ".((float) $amount / 1.2).", ".((float) $amount - $amount / 1.2).", ".((float) $amount).", 20, ".((int) $this->savuser->id).", ".((int) $creditnote->id).", ".((int) $id).", 'PSTEST')";
+		$sql .= " VALUES (1, ".((int) $socid).", '".$db->idate(dol_now())."', ".((float) $amount / 1.2).", ".((float) $amount - $amount / 1.2).", ".((float) $amount).", 20, ".((int) $this->savuser->id).", ".((int) $source->id).", ".((int) $id).", 'PSTEST')";
 		$this->assertTrue((bool) $db->query($sql), (string) $db->lasterror());
+	}
+
+	/**
+	 * Create a validated unpaid invoice with a schedule of equal installments, one month apart, the first in 10 days
+	 *
+	 * @param	int		$socid		Customer
+	 * @param	float	$total		Price without tax (VAT 20%)
+	 * @param	int		$number		Number of installments
+	 * @return	Facture				Invoice, read again
+	 */
+	private function createScheduledInvoice($socid, $total, $number = 3)
+	{
+		$installments = new InstallmentSchedule($this->savdb);
+		$invoice = $this->createInvoice($socid, array(array($total, 20)));
+		$lines = $installments->generate((float) $invoice->total_ttc, $number, 1, 0, dol_time_plus_duree(dol_now(), 10, 'd'));
+		$this->assertGreaterThan(0, $installments->save($this->savuser, $invoice, $lines), $installments->error);
+
+		return $invoice;
+	}
+
+	/**
+	 * The cash forecast of a bank account as compta/bank/treso.php makes it, for the invoices of one customer: its query of the invoices
+	 * (lines 122 to 128), the query of the hook addMoreSQL, and the hook moreFamily on each row, with the rest to pay it computes
+	 *
+	 * @param	int		$accountid		Bank account
+	 * @param	int		$socid			Customer
+	 * @param	bool	$withhook		With the hooks of the module (false: the forecast of the core alone)
+	 * @return	array{installment:array<int,float>,invoice:array<int,float>,labels:array<int,string>,dates:array<int,string>,balance:float}	Rest to pay of the rows by date (invoices by id), labels and dates of the installments, future balance
+	 */
+	private function getForecastRows($accountid, $socid, $withhook = true)
+	{
+		$db = $this->savdb;
+		$prefix = $db->prefix();
+		$hooks = new ActionsInstallments($db);
+		$account = new Account($db);
+		$account->id = $accountid;
+		$action = '';
+		$sql = "SELECT 'invoice' as family, f.rowid as objid, f.ref as ref, f.total_ttc, f.type, f.date_lim_reglement as dlr, s.rowid as socid, s.nom as name, s.fournisseur";
+		$sql .= " FROM ".$prefix."facture as f LEFT JOIN ".$prefix."societe as s ON f.fk_soc = s.rowid";
+		$sql .= " WHERE f.entity IN (".getEntity('invoice').") AND f.paye = 0 AND f.fk_statut = 1";
+		$sql .= " AND (f.fk_account IN (0, ".((int) $accountid).") OR f.fk_account IS NULL) AND f.fk_soc = ".((int) $socid);
+		$sqls = array($sql);
+		if ($withhook) {
+			$this->assertSame(0, $hooks->addMoreSQL(array('context' => 'banktreso'), $account, $action, null));
+			if (isset($hooks->results['sql'])) {
+				$sqls[] = $hooks->results['sql'];
+			}
+			$hooks->results = array();	// What the hook manager does after each call
+		}
+		$objs = array();
+		foreach ($sqls as $sql) {
+			$resql = $db->query($sql);
+			$this->assertNotFalse($resql, (string) $db->lasterror());
+			while ($obj = $db->fetch_object($resql)) {
+				if ((int) $obj->socid == (int) $socid) {	// The page lists all the customers, the test reads one
+					$obj->dlr = $db->jdate($obj->dlr);
+					$objs[] = $obj;
+				}
+			}
+		}
+		array_multisort(array_column($objs, 'dlr'), $objs);	// As the core sorts them
+
+		$result = array('installment' => array(), 'invoice' => array(), 'labels' => array(), 'dates' => array(), 'balance' => 0.0);
+		$invoice = new Facture($db);
+		foreach ($objs as $obj) {
+			$totalpayment = '';
+			$label = (string) $obj->ref;
+			if ($obj->family == 'invoice') {	// As the core reads it
+				$invoice->id = (int) $obj->objid;
+				$totalpayment = $invoice->getSommePaiement();
+				$totalpayment += $invoice->getSumDepositsUsed();
+				$totalpayment += $invoice->getSumCreditNotesUsed();
+			}
+			if ($withhook) {
+				$hooks->moreFamily(array('obj' => $obj, 'ref' => $label, 'refcomp' => '', 'totalpayment' => $totalpayment), $invoice, $action, null);
+				$totalpayment = $hooks->results['totalpayment'] ?? $totalpayment;
+				$label = (string) ($hooks->results['ref'] ?? $label);
+				$hooks->results = array();
+			}
+			$left = (float) $obj->total_ttc - ($totalpayment ? (float) $totalpayment : 0.0);
+			$result['balance'] += $left;
+			if (price2num($left) != 0) {
+				if ($obj->family == 'invoice') {
+					$result['invoice'][(int) $obj->objid] = (float) price2num($left);
+				} else {
+					$result['installment'][] = (float) price2num($left);
+					$result['labels'][] = strip_tags($label);
+					$result['dates'][] = dol_print_date((int) $obj->dlr, 'dayrfc');
+				}
+			}
+		}
+		$result['balance'] = (float) price2num($result['balance']);
+
+		return $result;
 	}
 
 	/**

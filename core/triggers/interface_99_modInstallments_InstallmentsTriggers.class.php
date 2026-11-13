@@ -32,7 +32,7 @@ require_once DOL_DOCUMENT_ROOT.'/core/triggers/dolibarrtriggers.class.php';
 class InterfaceInstallmentsTriggers extends DolibarrTriggers
 {
 	const ACTIONS = array('BILL_VALIDATE', 'BILL_MODIFY', 'BILL_PAYED', 'BILL_UNPAYED', 'PAYMENT_CUSTOMER_CREATE', 'PAYMENT_CUSTOMER_DELETE', 'DISCOUNT_MODIFY',
-		'BILL_DELETE', 'PROPAL_DELETE', 'ORDER_DELETE', 'PROPAL_VALIDATE', 'ORDER_VALIDATE');
+		'BILL_DELETE', 'PROPAL_DELETE', 'ORDER_DELETE', 'PROPAL_VALIDATE', 'ORDER_VALIDATE', 'BILL_SENTBYMAIL');
 
 	/**
 	 * Constructor
@@ -68,11 +68,19 @@ class InterfaceInstallmentsTriggers extends DolibarrTriggers
 		$result = 0;
 
 		switch ($action) {
-			case 'BILL_VALIDATE':	// The schedule of its order or proposal, else the one of its payment term
+			case 'BILL_VALIDATE':	// The schedule of its order or proposal, else the one of its payment term; a schedule of the draft to the scale of the invoice
 				'@phan-var-force Facture $object';
 				$result = $schedule->copyFromOrigin($user, $object);
 				$result = ($result == 0 ? $schedule->applyPaymentTermTemplate($user, $object) : $result);
+				$result = ($result == 0 ? $schedule->rescale($user, $object) : $result);
 				$result = min($result, $schedule->syncDueDate($object));
+				$sql = "UPDATE ".$this->db->prefix()."installments_line SET status = ".InstallmentSchedule::STATUS_OPEN." WHERE fk_facture = ".((int) $object->id);
+				$sql .= " AND status = ".InstallmentSchedule::STATUS_TOCHECK." AND fk_schedule IN (SELECT rowid FROM ".$this->db->prefix()."installments_schedule WHERE invoice_mode < ".InstallmentSchedule::INVOICE_SENT.")";
+				$result = min($result, $this->db->query($sql) ? 0 : -1);	// The invoice of an installment the job could not validate, validated from its card
+				break;
+			case 'BILL_SENTBYMAIL':	// The invoice of an installment the job could not send, sent from its card: no longer to check
+				$sql = "UPDATE ".$this->db->prefix()."installments_line SET status = ".InstallmentSchedule::STATUS_OPEN." WHERE fk_facture = ".((int) $object->id)." AND status = ".InstallmentSchedule::STATUS_TOCHECK;
+				$result = ($this->db->query($sql) ? 0 : -1);
 				break;
 			case 'PROPAL_VALIDATE':
 			case 'ORDER_VALIDATE':

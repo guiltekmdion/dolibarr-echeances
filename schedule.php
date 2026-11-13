@@ -119,21 +119,24 @@ if (empty($reshook) && $action == 'generate' && $permissiontowrite) {
 	$templateid = GETPOSTINT('templateid');
 	$templates = $installments->fetchTemplates();
 	$firstdate = GETPOSTDATE('firstdate', '12:00:00', 'tzserver') ?: dol_now();
-	$editlines = array();	// The paid, invoiced or direct debited installments stay, the rest is shared
+	$firstpercent = (float) price2num(GETPOST('firstpercent', 'alpha'));
+	$editlines = array();	// The paid, invoiced, direct debited, to check or abandoned installments stay, the rest is shared
 	$total = (float) $object->total_ttc;
-	foreach ($schedule ? $installments->getLocked($object, $schedule) : array() as $line) {
+	foreach ($schedule ? $installments->getKept($object, $schedule) : array() as $line) {
 		$editlines[] = array('id' => $line->id, 'date' => $line->date, 'amount' => $line->amount, 'mode' => $line->mode, 'note' => $line->note);
 		$total -= $line->amount;
 	}
-	if ($templateid > 0 && is_array($templates) && isset($templates[$templateid])) {
+	$generated = array();
+	if (!$templateid && ($firstpercent < 0 || $firstpercent >= 100)) {	// A first share of 100 % or more leaves nothing, or less than nothing, to the others
+		setEventMessages($langs->trans('InstallmentsErrorFirstPercent'), null, 'errors');
+	} elseif ($templateid > 0 && is_array($templates) && isset($templates[$templateid])) {
 		$template = $templates[$templateid];
 		$generated = $installments->generateFromTemplate($template, $total, $firstdate);
 		if (empty($generated)) {
 			setEventMessages($installments->error, null, 'errors');
 		}
 	} else {
-		$generated = $installments->generate($total, GETPOSTINT('nb'), GETPOSTINT('months'), GETPOSTINT('days'), $firstdate,
-			(float) price2num(GETPOST('firstpercent', 'alpha')), GETPOSTINT('mode'));
+		$generated = $installments->generate($total, GETPOSTINT('nb'), GETPOSTINT('months'), GETPOSTINT('days'), $firstdate, $firstpercent, GETPOSTINT('mode'));
 	}
 	$editlines = array_merge($editlines, $generated);
 	$action = 'edit';
@@ -151,9 +154,10 @@ if (empty($reshook) && $action == 'save' && $permissiontowrite) {
 	}
 	$dates = array_column($editlines, 'date');
 	array_multisort($dates, SORT_ASC, $editlines);
-	$result = $installments->save($user, $object, $editlines, GETPOSTINT('billing'), GETPOSTINT('invoice_mode'), GETPOSTINT('fk_email_template'));
+	$error = $installments->checkLines($object, $editlines, ($schedule ? array_column($schedule->lines, null, 'id') : array()));
+	$result = ($error === '' ? $installments->save($user, $object, $editlines, GETPOSTINT('billing'), GETPOSTINT('invoice_mode'), GETPOSTINT('fk_email_template')) : -1);
 	if ($result < 0) {
-		setEventMessages($installments->error, null, 'errors');
+		setEventMessages($error ?: $installments->error, null, 'errors');
 		$action = 'edit';
 	} else {
 		setEventMessages($langs->trans('RecordSaved'), null);
@@ -180,10 +184,10 @@ if (empty($reshook) && $action == 'confirm_createinvoice' && $confirm == 'yes' &
 	header('Location: '.$self);
 	exit;
 }
-if (empty($reshook) && in_array($action, array('confirm_linkinvoice', 'confirm_abandon', 'confirm_unlinkinvoice')) && $confirm == 'yes' && $permissiontowrite && $schedule
+if (empty($reshook) && in_array($action, array('confirm_linkinvoice', 'confirm_abandon', 'confirm_unlinkinvoice', 'confirm_reopen')) && $confirm == 'yes' && $permissiontowrite && $schedule
 	&& in_array($lineid, array_column($schedule->lines, 'id'))) {	// Only an installment of this document
-	$invoiceid = ($action == 'confirm_linkinvoice' ? GETPOSTINT('invoiceid') : ($action == 'confirm_unlinkinvoice' ? -1 : 0));
-	if ($installments->settle($user, $lineid, $invoiceid) < 0) {	// Test on permission already done
+	$codes = array('confirm_linkinvoice' => GETPOSTINT('invoiceid'), 'confirm_abandon' => 0, 'confirm_unlinkinvoice' => -1, 'confirm_reopen' => -2);
+	if ($installments->settle($user, $lineid, $codes[$action]) < 0) {	// Test on permission already done, the one on invoices by settle()
 		setEventMessages($installments->error, null, 'errors');
 	} else {
 		setEventMessages($langs->trans('RecordSaved'), null);
@@ -235,7 +239,8 @@ if ($current && $action == 'createinvoice') {
 if ($current && $action == 'linkinvoice') {
 	$invoices = array();
 	$sql = "SELECT rowid, ref, datef, total_ttc FROM ".$db->prefix()."facture WHERE fk_soc = ".((int) $object->socid)." AND entity IN (".getEntity('invoice').")";
-	$sql .= " AND fk_statut IN (".Facture::STATUS_VALIDATED.", ".Facture::STATUS_CLOSED.") AND type = ".Facture::TYPE_STANDARD.$db->order('datef', 'DESC').$db->plimit(100);
+	$sql .= " AND fk_statut IN (".Facture::STATUS_VALIDATED.", ".Facture::STATUS_CLOSED.") AND type = ".Facture::TYPE_STANDARD." AND total_ttc >= ".((float) $current->amount);	// Not smaller than the installment
+	$sql .= $db->order('datef', 'DESC').$db->plimit(100);
 	$resql = $db->query($sql);
 	while ($resql && $obj = $db->fetch_object($resql)) {
 		$invoices[(int) $obj->rowid] = $obj->ref.' - '.dol_print_date($db->jdate($obj->datef), 'day').' - '.price((float) $obj->total_ttc, 0, $langs, 1, -1, -1, $conf->currency);
@@ -249,6 +254,10 @@ if ($current && $action == 'unlinkinvoice') {
 if ($current && $action == 'abandon') {
 	print $form->formconfirm($self.'&lineid='.$current->id, $langs->trans('InstallmentsAbandon'), $langs->trans('InstallmentsConfirmAbandon', dol_print_date($current->date, 'day')), 'confirm_abandon', '', 0, 1);
 }
+if ($current && $action == 'reopen') {
+	$checked = !empty($current->invoiceid);	// Invoiced: its invoice validated or sent by hand, it keeps it
+	print $form->formconfirm($self.'&lineid='.$current->id, $langs->trans($checked ? 'InstallmentsChecked' : 'InstallmentsReopen'), $langs->trans($checked ? 'InstallmentsConfirmChecked' : 'InstallmentsConfirmReopen', dol_print_date($current->date, 'day')), 'confirm_reopen', '', 0, 1);
+}
 
 // Warnings: the reminder job of the core, the 60 days rule, a total that no longer matches the document
 $lines = ($editlines ?? ($schedule ? $schedule->lines : array()));
@@ -257,6 +266,9 @@ if ($element == 'facture' && $schedule && $installments->isCoreReminderJobEnable
 }
 if (($element == 'facture' || ($schedule && !$schedule->billing)) && $installments->isBeyondSixtyDays($object, $lines)) {	// Not for one invoice per installment
 	print info_admin($langs->trans('InstallmentsSixtyDaysWarning'), 0, 0, 'warning');
+}
+if ($schedule && $schedule->billing && $schedule->invoice_mode == InstallmentSchedule::INVOICE_SENT && $schedule->fk_email_template <= 0) {	// A schedule of 1.1.0 ("Default")
+	print info_admin($langs->trans('InstallmentsErrorTemplate'), 0, 0, 'warning');
 }
 if ($schedule && $action != 'edit') {
 	$sum = 0.0;
@@ -315,10 +327,10 @@ if ($action == 'edit' && $permissiontowrite) {
 			print '<td class="right">'.price($row['amount'], 0, $langs, 1, -1, -1, $conf->currency).'</td>';
 		} else {
 			print $form->selectDate($row['date'] ?: -1, 'linedate'.$n, 0, 0, 1, '', 1, 0).'</td>';
-			print '<td class="right"><input type="text" name="lineamount'.$n.'" class="width100 right" value="'.($row['amount'] ? price2num($row['amount']) : '').'"></td>';
+			print '<td class="right"><input type="text" name="lineamount'.$n.'" class="width100 right" value="'.($row['amount'] ? price($row['amount'], 0, $langs, 0, -1, -1) : '').'"></td>';
 		}
 		print '<td>'.$form->select_types_paiements($row['mode'], 'linemode'.$n, 'CRDT', 0, 1, 0, 0, 1, '', 1).'</td>';
-		print '<td><input type="text" name="linenote'.$n.'" class="minwidth200" value="'.dol_escape_htmltag($row['note']).'"></td>';
+		print '<td><input type="text" name="linenote'.$n.'" class="minwidth200" value="'.dol_escape_htmltag($row['note'], 0, 1).'"></td>';
 		print '<td class="center">'.(empty($row['id']) || !isset($locked[$row['id']]) ? '<input type="checkbox" name="linedelete'.$n.'" value="1">' : '').'</td></tr>';
 	}
 	print '<tr class="liste_total"><td>'.$langs->trans('Total').'</td><td class="right">'.price((float) $object->total_ttc, 0, $langs, 1, -1, -1, $conf->currency).'</td><td colspan="3"></td></tr>';
@@ -338,7 +350,7 @@ if ($action == 'edit' && $permissiontowrite) {
 		print '<td><input type="checkbox" name="billing" value="1"'.((GETPOSTISSET('billing') ? GETPOSTINT('billing') : ($schedule ? $schedule->billing : 1)) ? ' checked' : '').'></td></tr>';
 		print '<tr><td>'.$langs->trans('InstallmentsInvoiceMode').'</td><td>';
 		print $form->selectarray('invoice_mode', array($langs->trans('Draft'), $langs->trans('Validated'), $langs->trans('InstallmentsValidatedAndSent')), ($schedule ? $schedule->invoice_mode : GETPOSTINT('invoice_mode')));
-		print ' &nbsp; '.$langs->trans('EmailTemplate').' '.$form->selectarray('fk_email_template', $emailtemplates, ($schedule ? $schedule->fk_email_template : GETPOSTINT('fk_email_template')), $langs->trans('Default'));
+		print ' &nbsp; '.$form->textwithpicto($langs->trans('EmailTemplate'), $langs->trans('InstallmentsTemplateHelp')).' '.$form->selectarray('fk_email_template', $emailtemplates, ($schedule ? $schedule->fk_email_template : GETPOSTINT('fk_email_template')), 1);
 		print '</td></tr></table>';
 	}
 	print '<div class="center"><input type="submit" class="button button-save" value="'.$langs->trans('Save').'"> <a class="button button-cancel" href="'.$self.'">'.$langs->trans('Cancel').'</a></div>';
@@ -372,12 +384,20 @@ if ($action == 'edit' && $permissiontowrite) {
 			print '<td>'.dolGetBadge($langs->trans('InstallmentsState'.dol_ucfirst($state)), '', $badges[$state]);
 			print ($line->debitid ? ' '.img_picto($langs->trans('InstallmentsDebitRequested'), 'bank', 'class="paddingleft"') : '').'</td>';
 			print '<td>'.dolPrintLabel($line->note).'</td><td class="right nowraponall">';
+			$cansettle = ($permissiontowrite && $user->hasRight('facture', 'creer'));	// Giving up an invoice is a billing decision
 			if ($schedule->billing && !$line->invoiceid && $line->status != InstallmentSchedule::STATUS_ABANDONED) {
-				print dolGetButtonAction('', $langs->trans('InstallmentsCreateInvoice'), 'default', $self.'&lineid='.$line->id.'&action=createinvoice&token='.newToken(), '', $permissiontowrite && $user->hasRight('facture', 'creer'), array('attr' => array('class' => 'small')));
-				print dolGetButtonAction('', $langs->trans('InstallmentsLinkInvoice'), 'default', $self.'&lineid='.$line->id.'&action=linkinvoice&token='.newToken(), '', $permissiontowrite, array('attr' => array('class' => 'small')));
-				print dolGetButtonAction('', $langs->trans('InstallmentsAbandon'), 'default', $self.'&lineid='.$line->id.'&action=abandon&token='.newToken(), '', $permissiontowrite, array('attr' => array('class' => 'small')));
+				if ($line->status == InstallmentSchedule::STATUS_TOCHECK) {	// Invoiced by hand? Linked, abandoned, or invoiced again once checked
+					print dolGetButtonAction('', $langs->trans('InstallmentsReopen'), 'default', $self.'&lineid='.$line->id.'&action=reopen&token='.newToken(), '', $cansettle, array('attr' => array('class' => 'small')));
+				} else {
+					print dolGetButtonAction('', $langs->trans('InstallmentsCreateInvoice'), 'default', $self.'&lineid='.$line->id.'&action=createinvoice&token='.newToken(), '', $cansettle, array('attr' => array('class' => 'small')));
+				}
+				print dolGetButtonAction('', $langs->trans('InstallmentsLinkInvoice'), 'default', $self.'&lineid='.$line->id.'&action=linkinvoice&token='.newToken(), '', $cansettle, array('attr' => array('class' => 'small')));
+				print dolGetButtonAction('', $langs->trans('InstallmentsAbandon'), 'default', $self.'&lineid='.$line->id.'&action=abandon&token='.newToken(), '', $cansettle, array('attr' => array('class' => 'small')));
 			} elseif ($schedule->billing && $line->invoiceid) {	// A wrong invoice, found by the import for example
-				print dolGetButtonAction('', $langs->trans('InstallmentsUnlinkInvoice'), 'default', $self.'&lineid='.$line->id.'&action=unlinkinvoice&token='.newToken(), '', $permissiontowrite, array('attr' => array('class' => 'small')));
+				if ($line->status == InstallmentSchedule::STATUS_TOCHECK) {	// Its invoice not validated or not sent by the job: done by hand, then checked
+					print dolGetButtonAction('', $langs->trans('InstallmentsChecked'), 'default', $self.'&lineid='.$line->id.'&action=reopen&token='.newToken(), '', $cansettle, array('attr' => array('class' => 'small')));
+				}
+				print dolGetButtonAction('', $langs->trans('InstallmentsUnlinkInvoice'), 'default', $self.'&lineid='.$line->id.'&action=unlinkinvoice&token='.newToken(), '', $cansettle, array('attr' => array('class' => 'small')));
 			}
 			print '</td></tr>';
 		}

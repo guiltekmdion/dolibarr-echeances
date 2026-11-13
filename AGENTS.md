@@ -27,22 +27,20 @@ Every modification must respect:
 
 ## Expected Architecture
 
-External module structure:
-`htdocs/installments`
+External module structure (installed as `htdocs/custom/installments`):
+`installments`
 ├── `admin/`
+├── `build/`
 ├── `class/`
 ├── `core/`
-├── `css/`
-├── `doc/`
-├── `js/`
+├── `img/`
 ├── `langs/`
 ├── `lib/`
 ├── `sql/`
-├── `test/`
-└── `tpl/`
+└── `test/`
 
 Do not explore other directories than the workdir (that contains external modules) and the directory of Dolibarr project (that is in is ~/git/dolibarr). 
-A template of an external module directory content can be found in the `installments` folder of the Dolibarr project.
+A template of an external module directory content can be found in the `htdocs/modulebuilder/template` folder of the Dolibarr project.
 
 ---
 
@@ -73,7 +71,7 @@ Before writing any code, the agent **must**:
     - In classes: use `$this->db`
 - SQL forged by PHP must escaped fields with `db->escape()`, `db->sanitize()`, or by casting values to `(int)` or `(float)`
 - Always use `db->query()` followed by `db->fetch_object()` or `db->fetch_array()` to retrieve results
-- SQL scripts for table and index creation must be placed in `htdocs/install/mysql/tables/` (see existing files for examples)
+- SQL scripts for table and index creation must be placed in the `sql/` folder of the module (`llx_<table>.sql` and `llx_<table>.key.sql`), loaded by `_load_tables('/installments/sql/')` when the module is enabled
 
 ---
 
@@ -169,7 +167,7 @@ Before any modification, verify:
 - If making or modifying external module, add PHPUnit test files in `yourmoduledir/test/phpunit/`.
 - **One test file per source file under test**: a new case goes into the test file of the class or library file it exercises, as a new method. Create a file only when that source file has no test file yet, and split by direction (export / import) rather than by issue when a file grows past about a thousand lines. The CI reads what a test file loads with `dol_include_once()` and refuses a new file whose source already has one.
 - If you need to validate code change or if it is explicitly requested, you can check code and dev syntax rules by running the following command on modified files (it takes a long time):
-	`phan -k .phan/config.php -B dev/tools/phan/baseline.txt --analyze-twice --minimum-target-php-version 7.2 --exclude-directory-list=dev/tools,installments/test/,installments/vendor/ --output-mode=checkstyle filemodified1.php filemodified2.php ...`
+	`build/check.sh <root of a throwaway Dolibarr tree> [phpcs] [phpstan] [phan]` (the tools and the setup of Dolibarr on a copy of the module; phan with the minimum version of PHP of the module, `phpmin` in `core/modules/modInstallments.class.php`)
 
 ### Local Dolibarr Online test — Page Access
 

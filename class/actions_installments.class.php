@@ -20,7 +20,7 @@ declare(strict_types=1);
 /**
  * \file    installments/class/actions_installments.class.php
  * \ingroup installments
- * \brief   Hooks: the schedule in the PDF of an invoice (under its totals), of a proposal or an order (in its note), and a warning when the due date of an invoice is edited by hand
+ * \brief   Hooks: the schedule in the PDF of an invoice (under its totals), of a proposal or an order (in its note), their payment terms "as per the schedule", a warning when the due date of an invoice is edited by hand, and one row per installment in the cash forecast of a bank account
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/commonhookactions.class.php';
@@ -32,7 +32,8 @@ dol_include_once('/installments/class/installmentschedule.class.php');
  */
 class ActionsInstallments extends CommonHookActions
 {
-	const PDF_MAX_ROWS = 10;	// Rows of the schedule in the PDF, for the room left under the totals
+	const PDF_MAX_ROWS = 12;	// Rows of the schedule in the PDF with their payment mode; more installments: two columns of dates and amounts
+	const PDF_MAX_COMPACT = 48;	// Installments in two columns at most (24 rows), for the room left under the totals; beyond, the ones left to pay
 
 	/**
 	 * @var DoliDB Database handler
@@ -40,14 +41,24 @@ class ActionsInstallments extends CommonHookActions
 	public $db;
 
 	/**
-	 * @var array<string,array<int,array{label:string,amount:float,paid:bool}>> Rows of the PDF by document, read by the first hook for the second one
+	 * @var array<string,array<int,array{label:string,short:string,amount:float,paid:bool}>> Rows of the PDF by document, read by the first hook for the second one
 	 */
 	private $pdfrows = array();
 
 	/**
-	 * @var array<string,string> Public notes of the proposals and orders while their PDF is made
+	 * @var array<string,array{0:Translate,1:string,2:?string}> Payment terms printed "as per the schedule" while the PDF of a document is made: language, key, old text
 	 */
-	private $notes = array();
+	private $terms = array();
+
+	/**
+	 * @var array<int,stdClass> Installments left to pay in the cash forecast of a bank account, by id, read by addMoreSQL for moreFamily
+	 */
+	private $forecast = array();
+
+	/**
+	 * @var array<int,float> Amount left to pay in these installments, by id of invoice
+	 */
+	private $forecastdue = array();
 
 
 	/**
@@ -100,7 +111,7 @@ class ActionsInstallments extends CommonHookActions
 			$rows = $this->getPdfRows($invoice, $parameters['outputlangs']);
 			if (!empty($rows)) {
 				// @phan-suppress-next-line PhanUndeclaredProperty
-				$object->heightforinfotot += 4 * (count($rows) + 1);
+				$object->heightforinfotot += 4 * ($this->getPdfHeight($rows) + 1);
 			}
 		}
 
@@ -108,7 +119,8 @@ class ActionsInstallments extends CommonHookActions
 	}
 
 	/**
-	 * PDF of an invoice: its schedule under the totals, one row per installment
+	 * PDF of an invoice: its schedule under the totals, one row per installment with its payment mode, or two columns of dates and
+	 * amounts for a long schedule. The amounts are in the currency of the totals; a paid installment is grey.
 	 *
 	 * @param	array<string,mixed>	$parameters		Hook metadatas (pdf, object = invoice, outputlangs, index, posy)
 	 * @param	ModelePDFFactures	$object			Model of the PDF
@@ -139,34 +151,40 @@ class ActionsInstallments extends CommonHookActions
 		$pdf->SetXY($x, $y);
 		$pdf->MultiCell($width, 4, $outputlangs->transnoentities('InstallmentSchedule'), 0, 'L', false);
 		$pdf->SetFont('', '', $fontsize - 2);
-		foreach ($rows as $row) {
-			$y += 4;
-			$pdf->SetXY($x, $y);
-			$pdf->MultiCell($width - 30, 4, $row['label'], 0, 'L', false);
-			$pdf->SetXY($x + $width - 30, $y);
-			$pdf->MultiCell(30, 4, price($row['amount'], 0, $outputlangs), 0, 'R', false);
+		$height = $this->getPdfHeight($rows);
+		$columns = (count($rows) > self::PDF_MAX_ROWS ? 2 : 1);
+		$colwidth = $width / $columns;
+		foreach ($rows as $i => $row) {
+			$cellx = $x + $colwidth * (int) floor($i / $height);
+			$celly = $y + 4 * (1 + $i % $height);
+			$pdf->SetTextColor($row['paid'] ? 128 : 0, $row['paid'] ? 128 : 0, $row['paid'] ? 128 : 0);
+			$pdf->SetXY($cellx, $celly);
+			$pdf->Cell($colwidth - 22, 4, ($columns > 1 ? $row['short'] : $row['label']), 0, 0, 'L', false, '', 1);	// Shrunk to fit: never over the next row
+			$pdf->SetXY($cellx + $colwidth - 22, $celly);
+			$pdf->Cell(20, 4, price($row['amount'], 0, $outputlangs), 0, 0, 'R', false, '', 1);
 		}
-		$parameters['index'] += count($rows) + 1;	// The table of the payments comes after
+		$pdf->SetTextColor(0, 0, 0);
+		$parameters['index'] += $height + 1;	// The table of the payments comes after
 
 		return 0;
 	}
 
 	/**
-	 * PDF of a proposal or an order: its schedule added to its public note while the PDF is made (their models keep no room under
-	 * their totals, the note has its own). Nothing if the note already has the key __INSTALLMENTS__.
+	 * PDF of a document with a schedule: its payment terms printed "as per the schedule" (the code of the terms is kept, only its text
+	 * in the language of the PDF changes, given back after); for a proposal or an order, its schedule added to its public note, in a
+	 * copy of the document the model prints (their models keep no room under their totals, the note has its own; the document itself
+	 * is never changed, even if the PDF fails). Nothing in the note if it already has the key __INSTALLMENTS__.
 	 *
 	 * @param	array<string,mixed>	$parameters		Hook metadatas (object = document, outputlangs)
-	 * @param	CommonObject		$object			Document
+	 * @param	CommonObject		$object			Document the model prints
 	 * @param	?string				$action			Action
 	 * @param	HookManager			$hookmanager	Hook manager
 	 * @return	int									0
 	 */
 	public function beforePDFCreation($parameters, &$object, &$action, $hookmanager)
 	{
-		global $conf;
-
 		$document = $parameters['object'] ?? null;
-		if (!($document instanceof Propal || $document instanceof Commande) || strpos((string) $document->note_public, '__INSTALLMENTS__') !== false) {
+		if (!($document instanceof Facture || $document instanceof Propal || $document instanceof Commande)) {
 			return 0;
 		}
 		$outputlangs = $parameters['outputlangs'];
@@ -175,18 +193,27 @@ class ActionsInstallments extends CommonHookActions
 		if (empty($rows)) {
 			return 0;
 		}
+		if (!empty($document->cond_reglement_code)) {
+			$key = 'PaymentCondition'.$document->cond_reglement_code;
+			$this->terms[$document->element.$document->id] = array($outputlangs, $key, $outputlangs->tab_translate[$key] ?? null);
+			$outputlangs->tab_translate[$key] = $outputlangs->transnoentitiesnoconv('InstallmentsPdfPaymentTerms');
+		}
+		if ($document instanceof Facture || strpos((string) $document->note_public, '__INSTALLMENTS__') !== false) {
+			return 0;
+		}
+		$schedule = new InstallmentSchedule($this->db);
 		$html = '<strong>'.dol_escape_htmltag($outputlangs->transnoentities('InstallmentSchedule')).'</strong><br><table>';
 		foreach ($rows as $row) {
-			$html .= '<tr><td>'.dol_escape_htmltag($row['label']).'</td><td align="right">'.price($row['amount'], 0, $outputlangs, 1, -1, -1, $conf->currency).'</td></tr>';
+			$html .= '<tr><td>'.dol_escape_htmltag($row['label']).'</td><td align="right">'.price($row['amount'], 0, $outputlangs, 1, -1, -1, $schedule->toDocumentCurrency($document, 0.0)[1]).'</td></tr>';
 		}
-		$this->notes[$document->element.$document->id] = (string) $document->note_public;
-		$document->note_public = dol_concatdesc((string) $document->note_public, $html.'</table>');
+		$object = clone $document;	// The model prints the copy: the note of the document stays as it is
+		$object->note_public = dol_concatdesc((string) $document->note_public, $html.'</table>');
 
 		return 0;
 	}
 
 	/**
-	 * PDF of a proposal or an order made: its public note back
+	 * PDF made: the text of the payment terms given back
 	 *
 	 * @param	array<string,mixed>	$parameters		Hook metadatas (object = document)
 	 * @param	CommonDocGenerator	$object			Model of the PDF
@@ -197,20 +224,94 @@ class ActionsInstallments extends CommonHookActions
 	public function afterPDFCreation($parameters, &$object, &$action, $hookmanager)
 	{
 		$document = $parameters['object'] ?? null;
-		if (is_object($document) && isset($this->notes[$document->element.$document->id])) {
-			$document->note_public = $this->notes[$document->element.$document->id];
-			unset($this->notes[$document->element.$document->id]);
+		if (is_object($document) && isset($this->terms[$document->element.$document->id])) {
+			list($outputlangs, $key, $old) = $this->terms[$document->element.$document->id];
+			if ($old === null) {
+				unset($outputlangs->tab_translate[$key]);
+			} else {
+				$outputlangs->tab_translate[$key] = $old;
+			}
+			unset($this->terms[$document->element.$document->id]);
 		}
 
 		return 0;
 	}
 
 	/**
-	 * Rows of the schedule of a document for its PDF: date, payment mode (and state of an invoice), amount
+	 * Cash forecast of a bank account (compta/bank/treso.php): one row per installment left to pay, at its date, for the invoices with a schedule.
+	 * The core keeps listing each invoice (see moreFamily): all is read here, in one query, for the two hooks.
+	 *
+	 * @param	array<string,mixed>	$parameters		Hook metadatas (context, etc...)
+	 * @param	Account				$object			Bank account
+	 * @param	?string				$action			Action
+	 * @param	HookManager			$hookmanager	Hook manager
+	 * @return	int									0, the query is in $this->results['sql'] (the core takes it only after a 0)
+	 */
+	public function addMoreSQL($parameters, &$object, &$action, $hookmanager)
+	{
+		$this->forecast = array();
+		$this->forecastdue = array();
+		if (!($object instanceof Account)) {
+			return 0;
+		}
+		$schedule = new InstallmentSchedule($this->db);
+		$lines = $schedule->getForecast((int) $object->id);
+		foreach (is_array($lines) ? $lines : array() as $id => $line) {
+			$this->forecast[$id] = $line;
+			$this->forecastdue[$line->invoiceid] = ($this->forecastdue[$line->invoiceid] ?? 0.0) + $line->left;
+		}
+		if ($this->forecast) {
+			$sql = "SELECT 'installment' as family, f.rowid as objid, l.rowid as ref, l.amount as total_ttc, f.type, l.date_due as dlr, s.rowid as socid, s.nom as name, s.fournisseur";
+			$sql .= " FROM ".$this->db->prefix()."installments_line as l";
+			$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as sc ON sc.rowid = l.fk_schedule";
+			$sql .= " INNER JOIN ".$this->db->prefix()."facture as f ON f.rowid = sc.fk_element";
+			$sql .= " LEFT JOIN ".$this->db->prefix()."societe as s ON s.rowid = f.fk_soc";
+			$sql .= " WHERE l.rowid IN (".$this->db->sanitize(implode(',', array_keys($this->forecast))).")";
+			$this->results = array('sql' => $sql);
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Cash forecast of a bank account: the rows of the installments (invoice with its rank, third party, rest of the installment), and the invoice
+	 * of the core given what its installments hold, so it shows only the rest they do not (nothing when they hold all of it).
+	 *
+	 * @param	array<string,mixed>	$parameters		Hook metadatas (obj = row, totalpayment = already paid, as the core read it)
+	 * @param	CommonObject		$object			Not used
+	 * @param	?string				$action			Action
+	 * @param	HookManager			$hookmanager	Hook manager
+	 * @return	int									0, the values are in $this->results
+	 */
+	public function moreFamily($parameters, &$object, &$action, $hookmanager)
+	{
+		$obj = $parameters['obj'];
+		'@phan-var-force stdClass $obj';
+		if ($obj->family == 'invoice' && isset($this->forecastdue[(int) $obj->objid])) {
+			$this->results = array('totalpayment' => (float) $parameters['totalpayment'] + $this->forecastdue[(int) $obj->objid]);
+		} elseif ($obj->family == 'installment' && isset($this->forecast[(int) $obj->ref])) {
+			$line = $this->forecast[(int) $obj->ref];
+			$invoice = new Facture($this->db);	// Without a read, as the core does
+			$invoice->id = $line->invoiceid;
+			$invoice->ref = $line->ref;
+			$invoice->type = (int) $obj->type;
+			$thirdparty = new Societe($this->db);
+			$thirdparty->id = (int) $obj->socid;
+			$thirdparty->name = (string) $obj->name;
+			$this->results = array('ref' => $invoice->getNomUrl(1, '').' ('.$line->rank.'/'.$line->count.')', 'refcomp' => $thirdparty->getNomUrl(1, '', 24),
+				'totalpayment' => (float) $obj->total_ttc - $line->left);
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Rows of the schedule of a document for its PDF: date and payment mode (and state of an invoice), amount in the currency of the document.
+	 * All the installments, at most PDF_MAX_COMPACT: beyond, the ones left to pay, the last ones on one row.
 	 *
 	 * @param	CommonObject	$document		Invoice, proposal or order
 	 * @param	Translate		$outputlangs	Language of the PDF
-	 * @return	array<int,array{label:string,amount:float,paid:bool}>	Rows, none for a document without schedule of at least 2 installments
+	 * @return	array<int,array{label:string,short:string,amount:float,paid:bool}>	Rows, none for a document without schedule of at least 2 installments
 	 */
 	private function getPdfRows(CommonObject $document, Translate $outputlangs)
 	{
@@ -229,23 +330,35 @@ class ActionsInstallments extends CommonHookActions
 					continue;
 				}
 				$mode = $schedule->getModeLabel($line->mode ?: (int) $document->mode_reglement_id, $outputlangs);
-				$label = dol_print_date($line->date, 'day', false, $outputlangs).($mode !== '' ? ' - '.$mode : '');
+				$day = dol_print_date($line->date, 'day', false, $outputlangs);
 				$ispaid = ($document instanceof Facture && $schedule->getState($data, $line, $paid[$line->id], dol_now()) == 'paid');
-				$label .= ($ispaid ? ' ('.$outputlangs->transnoentitiesnoconv('InstallmentsStatePaid').')' : '');
-				$rows[] = array('label' => $label, 'amount' => $line->amount, 'paid' => $ispaid);
+				$label = $day.($mode !== '' ? ' - '.$mode : '').($ispaid ? ' ('.$outputlangs->transnoentitiesnoconv('InstallmentsStatePaid').')' : '');
+				$rows[] = array('label' => $label, 'short' => $day, 'amount' => $schedule->toDocumentCurrency($document, $line->amount)[0], 'paid' => $ispaid);
 			}
-			if (count($rows) > self::PDF_MAX_ROWS) {	// A long schedule: the installments left to pay, the last ones on one line
+			if (count($rows) > self::PDF_MAX_COMPACT) {	// A very long schedule: the installments left to pay, the last ones on one row
 				$rows = array_values(array_filter($rows, 'installmentsIsUnpaid'));
-				if (count($rows) > self::PDF_MAX_ROWS) {
-					$more = array_slice($rows, self::PDF_MAX_ROWS - 1);
-					$rows = array_slice($rows, 0, self::PDF_MAX_ROWS - 1);
-					$rows[] = array('label' => $outputlangs->transnoentitiesnoconv('InstallmentsPdfMore', (string) count($more)), 'amount' => array_sum(array_column($more, 'amount')), 'paid' => false);
+				if (count($rows) > self::PDF_MAX_COMPACT) {
+					$more = array_slice($rows, self::PDF_MAX_COMPACT - 1);
+					$rows = array_slice($rows, 0, self::PDF_MAX_COMPACT - 1);
+					$text = $outputlangs->transnoentitiesnoconv('InstallmentsPdfMore', (string) count($more));
+					$rows[] = array('label' => $text, 'short' => $text, 'amount' => array_sum(array_column($more, 'amount')), 'paid' => false);
 				}
 			}
 		}
 		$this->pdfrows[$key] = $rows;
 
 		return $rows;
+	}
+
+	/**
+	 * Rows of 4 mm the schedule takes under the totals, title apart: one per installment, or two columns for a long schedule
+	 *
+	 * @param	array<int,array{label:string,short:string,amount:float,paid:bool}>	$rows	Rows of the PDF
+	 * @return	int		Number of rows
+	 */
+	private function getPdfHeight(array $rows)
+	{
+		return (count($rows) > self::PDF_MAX_ROWS ? (int) ceil(count($rows) / 2) : count($rows));
 	}
 }
 

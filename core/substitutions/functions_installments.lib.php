@@ -35,7 +35,7 @@ declare(strict_types=1);
  */
 function installments_completesubstitutionarray(&$substitutionarray, $outputlangs, $object, $parameters = null)
 {
-	global $conf, $db;
+	global $db;
 
 	if (!is_object($object)) {
 		$outputlangs->load('installments@installments');
@@ -59,7 +59,8 @@ function installments_completesubstitutionarray(&$substitutionarray, $outputlang
 			continue;
 		}
 		$mode = $installments->getModeLabel($line->mode ?: (int) $object->mode_reglement_id, $outputlangs);
-		$lines[] = dol_print_date($line->date, 'day', false, $outputlangs).' : '.price($line->amount, 0, $outputlangs, 1, -1, -1, $conf->currency)
+		list($amount, $currency) = $installments->toDocumentCurrency($object, $line->amount);	// In the currency of the document
+		$lines[] = dol_print_date($line->date, 'day', false, $outputlangs).' : '.price($amount, 0, $outputlangs, 1, -1, -1, $currency)
 			.($mode !== '' ? ' ('.$mode.')' : '');
 	}
 	$substitutionarray['__INSTALLMENTS__'] = implode("<br>\n", $lines);	// HTML: the notes and the email templates are HTML by default, the ODT converts it

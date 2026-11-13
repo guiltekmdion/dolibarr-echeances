@@ -23,7 +23,7 @@ CREATE TABLE llx_installments_schedule(
 	fk_element integer NOT NULL,
 	billing tinyint DEFAULT 0 NOT NULL,				-- 1 = each installment becomes an invoice (proposals and orders), 0 = expected payments
 	invoice_mode tinyint DEFAULT 0 NOT NULL,		-- invoice of an installment: 0 = draft, 1 = validated, 2 = validated and sent by email
-	fk_email_template integer DEFAULT 0 NOT NULL,	-- llx_c_email_templates (type facture_send) of the mode 2, 0 = the default one
+	fk_email_template integer DEFAULT 0 NOT NULL,	-- llx_c_email_templates (type facture_send) of the mode 2, required by it
 	date_creation datetime NOT NULL,
 	tms timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 	fk_user_creat integer NOT NULL,

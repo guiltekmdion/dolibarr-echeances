@@ -75,7 +75,7 @@ class modInstallments extends DolibarrModules
 		$this->editor_squarred_logo = '';
 
 		// Possible values for version are: 'development', 'experimental', 'dolibarr', 'dolibarr_deprecated', 'experimental_deprecated' or a version string like 'x.y.z'
-		$this->version = '1.1.0';
+		$this->version = '1.2.0';
 
 		// Key used in llx_const table to save module status enabled/disabled (where INSTALLMENTS is value of property name of module in uppercase)
 		$this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
@@ -112,6 +112,7 @@ class modInstallments extends DolibarrModules
 			'hooks' => array(
 				'invoicecard',		// Warning when the due date of an invoice with a schedule is edited by hand
 				'pdfgeneration',	// The schedule under the totals of the PDF of an invoice
+				'banktreso',		// Cash forecast of a bank account: one row per installment
 			),
 			/* END MODULEBUILDER HOOKSCONTEXTS */
 			// Set this to 1 if features of module are opened to external users
@@ -143,12 +144,14 @@ class modInstallments extends DolibarrModules
 		$this->need_javascript_ajax = 0;
 
 		// Messages at activation
-		$this->warnings_activation = array();
+		$this->warnings_activation = array('always' => 'InstallmentsActivationWarning');	// The reminder jobs of the core claim the whole rest at each installment
 		$this->warnings_activation_ext = array();
 
-		// Constants: the date of the first run of the job is deleted with the module, so a module enabled again does not invoice the installments passed meanwhile
+		// Constants: the dates of the first run of the jobs are kept when the module is disabled (an update disables then enables it): a module
+		// enabled again after a long stop invoices, and asks the direct debits of, the installments due meanwhile at the next run of its jobs
 		$this->const = array(
-			0 => array('INSTALLMENTS_START_DATE', 'chaine', '', 'Date of the first run of the job: the installments due before are invoiced by hand', 0, 'current', 1),
+			0 => array('INSTALLMENTS_START_DATE', 'chaine', '', 'Date of the first run of the job: the installments due before are invoiced by hand', 0, 'current', 0),	// Kept when the module is updated (disabled then enabled)
+			1 => array('INSTALLMENTS_DEBIT_START_DATE', 'chaine', '', 'Date of the first run of the job of the direct debits: the installments due before are asked by hand', 0, 'current', 0),
 		);
 
 		if (!isModEnabled("installments")) {
@@ -190,7 +193,7 @@ class modInstallments extends DolibarrModules
 		$this->boxes = array(
 			0 => array(
 				'file' => 'box_installments.php@installments',
-				'note' => 'Installments expected this month and late ones',
+				'note' => '',	// Shown untranslated by the core: its label says it
 				'enabledbydefaulton' => 'Home',
 			),
 		);

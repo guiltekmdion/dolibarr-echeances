@@ -63,17 +63,20 @@ InstallmentsAbandon = Abandonner
 InstallmentsConfirmAbandon = Abandonner l'échéance du %s ? Elle ne sera jamais facturée.
 InstallmentsUnlinkInvoice = Pas cette facture
 InstallmentsConfirmUnlink = Délier la facture de l'échéance du %s ? L'échéance redevient « À vérifier » : rattacher la bonne facture, ou l'abandonner.
+InstallmentsReopen = Remettre à facturer
+InstallmentsConfirmReopen = L'échéance du %s n'a jamais été facturée : la remettre à facturer ? La tâche la facture à sa date, ou maintenant par « Facturer maintenant ».
+InstallmentsTemplateHelp = Obligatoire pour le mode « Validée et envoyée par e-mail » : l'e-mail envoyé avec la facture de chaque échéance
 InstallmentsDebitRequested = Prélèvement demandé
 InstallmentsDueDateManaged = Cette facture a un échéancier : sa date d'échéance suit la prochaine échéance impayée, et une date changée à la main est remise aussitôt.
-InstallmentsCoreReminderWarning = La tâche de relance de Dolibarr (Envoi des relances des factures impayées) est active : elle relance à la date de chaque échéance avec tout le reste à payer. Le module Relances relance chaque échéance pour son seul montant.
-InstallmentsSixtyDaysWarning = Entre professionnels en France, le délai de paiement ne peut pas dépasser 60 jours après la date de la facture, ou 45 jours fin de mois si le contrat le prévoit (article L441-10 du Code de commerce). Au-delà, faites une facture par échéance.
+InstallmentsCoreReminderWarning = La tâche de relance de Dolibarr (Envoyer un rappel par email pour les factures validées et impayées) est active : elle relance à la date de chaque échéance avec tout le reste à payer. Le module Relances relance chaque échéance pour son seul montant.
+InstallmentsSixtyDaysWarning = Entre professionnels en France, le délai de paiement ne peut pas dépasser 60 jours après la date de la facture, ou 45 jours fin de mois si le contrat le prévoit (article L441-10 du Code de commerce).
 InstallmentsTotalDiffers = Les échéances totalisent %s, le document %s : modifiez l'échéancier.
 
 #
 # List, widget and jobs
 #
 InstallmentsRecordPayments = Enregistrer les paiements
-InstallmentsConfirmPayments = Enregistrer comme reçu le reste à payer des %s échéances sélectionnées, un paiement par facture ? À faire seulement après vérification du relevé bancaire.
+InstallmentsConfirmPayments = Enregistrer comme reçu le reste à payer des %s échéances sélectionnées, un paiement par facture, jamais plus que le reste à payer de la facture ? Une facture dont un prélèvement est en cours est sautée. À faire seulement après vérification du relevé bancaire.
 InstallmentsNbPayments = %s paiement(s) enregistré(s)
 InstallmentsBulkPayment = Échéances de l'échéancier
 InstallmentsCreateInvoices = Facturer les échéances
@@ -81,13 +84,20 @@ InstallmentsConfirmInvoices = Créer les factures des %s échéances sélectionn
 InstallmentsInvoicesCreated = %s facture(s) d'échéances créée(s)
 InstallmentsDebitsCreated = %s demande(s) de prélèvement créée(s)
 InstallmentsWidget = Échéances : échéances à traiter
-InstallmentsWidgetTitle = Échéances en retard ou attendues ce mois-ci (%s)
+InstallmentsWidgetTitle = Échéances en retard, à vérifier ou attendues ce mois-ci (%s)
 InstallmentsInvoiceJob = Factures des échéances
 InstallmentsInvoiceJobComment = Crée la facture de chaque échéance d'un devis ou d'une commande à sa date (brouillon, validée ou envoyée, comme le prévoit son échéancier). Les échéances antérieures au premier lancement sont facturées à la main.
 InstallmentsDebitJob = Prélèvements des échéances
 InstallmentsDebitJobComment = Crée une demande de prélèvement pour chaque échéance impayée réglée par prélèvement, quelques jours avant sa date.
 InstallmentsInvoiceLine = Échéance %s sur %s de %s
 InstallmentsEventSent = Facture %s envoyée par e-mail (échéancier)
+InstallmentsEventLinked = Échéance du %s réglée par la facture %s
+InstallmentsEventUnlinked = Facture de l'échéance du %s déliée : à vérifier
+InstallmentsEventReopened = Échéance du %s remise à facturer
+InstallmentsEventAbandoned = Échéance du %s (%s) abandonnée : elle ne sera jamais facturée
+InstallmentsRescaled = Les échéances (%s) sont remises à l'échelle de la facture (%s) : mêmes dates, mêmes parts
+InstallmentsPdfPaymentTerms = Selon l'échéancier
+InstallmentsActivationWarning = Désactivez les tâches de relance de Dolibarr (Envoyer un rappel par email pour les factures validées et impayées) avant d'utiliser des échéanciers : elles réclament tout le reste de la facture à chaque échéance.
 
 #
 # Setup, dictionary and import
@@ -106,7 +116,7 @@ InstallmentsHelpMonths = Mois entre deux échéances
 InstallmentsHelpDays = Jours entre deux échéances, ajoutés aux mois
 InstallmentsHelpFirstPercent = Part de la première échéance en %, 0 pour des échéances égales
 InstallmentsHelpModeCode = Code du mode de règlement (VIR, PRE, CHQ...), vide pour celui du document
-InstallmentsHelpSplitRule = Échéances libres à la place des 4 colonnes précédentes : pourcentage:jours après la date du document, :fdm pour la fin de ce mois, séparées par ; (30:0;30:30;40:60:fdm). Le total doit faire 100.
+InstallmentsHelpSplitRule = Échéances libres à la place des 4 colonnes précédentes : pourcentage:jours après la date du document, :fdm (ou :eom) pour la fin de ce mois, séparées par ; (30:0;30:30;40:60:fdm). Le total doit faire 100.
 InstallmentsHelpPaymentTerm = Code d'une condition de règlement (dictionnaire Conditions de règlement) : ses factures, devis et commandes reçoivent cet échéancier à leur validation
 Nb = Nombre
 First_percent = Première (%)
@@ -114,9 +124,11 @@ Mode_code = Mode de règlement
 Split_rule = Échéances libres
 Payment_term_code = Condition de règlement
 InstallmentsImport = Reprise d'Échéancier
-InstallmentsImportHelp = Les échéanciers du module Échéancier (Artis Auxilium) sont copiés, ses tables sont seulement lues. Pour chaque échéance de devis ou de commande sans facture, la facture faite à la main est cherchée : même montant, à 45 jours près, liée au document d'abord ; une mauvaise se délie dans l'onglet du document par « Pas cette facture ». Les autres arrivent « À vérifier », passées ou futures : la tâche planifiée ne les facture jamais.
+InstallmentsImportHelp = Les échéanciers du module Échéancier (Artis Auxilium) sont copiés, ses tables sont seulement lues. Pour chaque échéance de devis ou de commande sans facture, la facture faite à la main est cherchée (même montant, à 45 jours près) : seule une facture liée au document est rattachée ; une autre facture du client est seulement suggérée, dans la note de l'échéance. Les autres arrivent « À vérifier », passées ou futures : la tâche planifiée ne les facture jamais. Dans l'onglet du document : « Déjà facturée », « Abandonner » ou « Remettre à facturer » ; une mauvaise facture se délie par « Pas cette facture ».
 InstallmentsImportPreview = À reprendre
-InstallmentsImportMatched = Factures retrouvées pour une échéance
+InstallmentsImportMatched = Factures liées au document, rattachées à une échéance
+InstallmentsImportSuggested = Factures suggérées, à vérifier (non liées au document)
+InstallmentsImportSuggestion = Facture suggérée par la reprise : %s (%s), non liée au document. Si c'est elle : « Déjà facturée ».
 InstallmentsImportSchedules = Échéanciers
 InstallmentsImportLines = Échéances
 InstallmentsImportDifferent = Total différent du document
@@ -127,6 +139,7 @@ InstallmentsImportUnknownType = type de document inconnu
 InstallmentsImportNoDocument = document introuvable
 InstallmentsImportExists = a déjà un échéancier
 InstallmentsImportNoLine = aucune échéance avec un montant
+InstallmentsImportOtherEntity = document d'une autre entité
 
 #
 # Errors
@@ -138,6 +151,15 @@ InstallmentsErrorDelete = Une échéance est payée, facturée ou prélevée : l
 InstallmentsErrorNotToInvoice = Cette échéance n'est pas à facturer
 InstallmentsErrorNotBillable = Le devis n'est pas signé, ou la commande n'est pas validée
 InstallmentsErrorSplitRule = Modèle %s : échéances libres incorrectes %s (pourcentage:jours[:fdm], séparées par ;, total 100)
-InstallmentsErrorInvoice = La facture doit être validée, appartenir au même client et n'être liée à aucune autre échéance
+InstallmentsErrorInvoice = La facture doit être validée, appartenir au même client, ne pas être plus petite que l'échéance et n'être liée à aucune autre échéance
 InstallmentsErrorModeNotAllowed = L'auteur de l'échéancier n'a pas le droit de valider ou d'envoyer les factures : la facture reste en brouillon ou n'est pas envoyée
 InstallmentsPdfMore = + %s autres échéances
+InstallmentsErrorTemplate = Choisissez le modèle d'e-mail des factures envoyées
+InstallmentsChecked = C'est vérifié
+InstallmentsConfirmChecked = La facture de l'échéance du %s a été validée ou envoyée à la main : elle n'est plus à vérifier ? Elle garde sa facture.
+InstallmentsEventChecked = Échéance du %s vérifiée, facture gardée
+InstallmentsErrorBeforeDocument = L'échéance du %s est avant la date du document (%s)
+InstallmentsErrorFirstPercent = La part de la première échéance doit être d'au moins 0 et de moins de 100 %
+InstallmentsErrorToCheck = Cette échéance est à vérifier : rattachez sa facture, abandonnez-la, ou remettez-la à facturer
+InstallmentsErrorAlreadyInvoiced = Non facturée : le document est déjà facturé pour %s sur %s
+InstallmentsErrorDebitInProgress = prélèvement en cours, paiement non enregistré

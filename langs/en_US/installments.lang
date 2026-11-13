@@ -63,17 +63,20 @@ InstallmentsAbandon = Abandon
 InstallmentsConfirmAbandon = Abandon the installment of %s? It will never be invoiced.
 InstallmentsUnlinkInvoice = Not this invoice
 InstallmentsConfirmUnlink = Unlink the invoice of the installment of %s? The installment comes back "To check": link the right invoice, or abandon it.
+InstallmentsReopen = Invoice again
+InstallmentsConfirmReopen = The installment of %s was never invoiced: put it back to invoice? The job invoices it at its date, or now with "Invoice now".
+InstallmentsTemplateHelp = Required by the mode "Validated and sent by email": the email sent with the invoice of each installment
 InstallmentsDebitRequested = Direct debit requested
 InstallmentsDueDateManaged = This invoice has a payment schedule: its due date follows the next unpaid installment and a date changed by hand is put back at once.
-InstallmentsCoreReminderWarning = The reminder job of Dolibarr (Send reminders of unpaid invoices) is enabled: it sends a reminder at the date of each installment with the whole rest to pay. The module Reminders reminds each installment for its own amount.
-InstallmentsSixtyDaysWarning = Between professionals in France, the payment delay cannot go beyond 60 days after the date of the invoice, or 45 days end of month if the contract says so (article L441-10 of the Code de commerce). Beyond, make one invoice per installment.
+InstallmentsCoreReminderWarning = The reminder job of Dolibarr (Send reminder by email for validated and unpaid invoices) is enabled: it sends a reminder at the date of each installment with the whole rest to pay. The module Reminders reminds each installment for its own amount.
+InstallmentsSixtyDaysWarning = Between professionals in France, the payment delay cannot go beyond 60 days after the date of the invoice, or 45 days end of month if the contract says so (article L441-10 of the Code de commerce).
 InstallmentsTotalDiffers = The installments total %s, the document %s: modify the payment schedule.
 
 #
 # List, widget and jobs
 #
 InstallmentsRecordPayments = Record the payments
-InstallmentsConfirmPayments = Record as received the rest to pay of the %s selected installments, one payment per invoice? Do it only once the bank statement is checked.
+InstallmentsConfirmPayments = Record as received the rest to pay of the %s selected installments, one payment per invoice, never more than what the invoice has left to pay? An invoice with a direct debit in progress is skipped. Do it only once the bank statement is checked.
 InstallmentsNbPayments = %s payment(s) recorded
 InstallmentsBulkPayment = Installments of the payment schedule
 InstallmentsCreateInvoices = Invoice the installments
@@ -81,13 +84,20 @@ InstallmentsConfirmInvoices = Create the invoices of the %s selected installment
 InstallmentsInvoicesCreated = %s invoice(s) of installments created
 InstallmentsDebitsCreated = %s direct debit request(s) created
 InstallmentsWidget = Payment schedules: installments to process
-InstallmentsWidgetTitle = Installments late or expected this month (%s)
+InstallmentsWidgetTitle = Installments late, to check or expected this month (%s)
 InstallmentsInvoiceJob = Invoices of the installments
 InstallmentsInvoiceJobComment = Creates the invoice of each installment of a proposal or an order on its date (draft, validated or sent, as set in its payment schedule). The installments due before the first run are invoiced by hand.
 InstallmentsDebitJob = Direct debits of the installments
 InstallmentsDebitJobComment = Creates a direct debit request for each unpaid installment paid by direct debit, some days before its date.
 InstallmentsInvoiceLine = Installment %s of %s of %s
 InstallmentsEventSent = Invoice %s sent by email (payment schedule)
+InstallmentsEventLinked = Installment of %s settled by the invoice %s
+InstallmentsEventUnlinked = Invoice of the installment of %s unlinked: to check
+InstallmentsEventReopened = Installment of %s to invoice again
+InstallmentsEventAbandoned = Installment of %s (%s) abandoned: it will never be invoiced
+InstallmentsRescaled = The installments (%s) are put to the scale of the invoice (%s): same dates and shares
+InstallmentsPdfPaymentTerms = As per the payment schedule
+InstallmentsActivationWarning = Disable the reminder jobs of Dolibarr (Send reminder by email for validated and unpaid invoices) before using payment schedules: they claim the whole rest of the invoice at each installment.
 
 #
 # Setup, dictionary and import
@@ -114,9 +124,11 @@ Mode_code = Payment mode
 Split_rule = Free installments
 Payment_term_code = Payment term
 InstallmentsImport = Import from Echeancier
-InstallmentsImportHelp = The payment schedules of the module Echeancier (Artis Auxilium) are copied, its tables are only read. For each installment of a proposal or an order without invoice, the invoice made by hand is searched: same amount, within 45 days, linked to the document first; a wrong one is unlinked on the tab of the document with "Not this invoice". The others are imported as "To check", past or future: the scheduled job never invoices them.
+InstallmentsImportHelp = The payment schedules of the module Echeancier (Artis Auxilium) are copied, its tables are only read. For each installment of a proposal or an order without invoice, the invoice made by hand is searched (same amount, within 45 days): only an invoice linked to the document is attached; another invoice of the customer is only suggested, in the note of the installment. The others are imported as "To check", past or future: the scheduled job never invoices them. On the tab of the document: "Already invoiced", "Abandon" or "Invoice again"; a wrong invoice is unlinked with "Not this invoice".
 InstallmentsImportPreview = To import
-InstallmentsImportMatched = Invoices found for an installment
+InstallmentsImportMatched = Invoices linked to the document, attached to an installment
+InstallmentsImportSuggested = Invoices suggested, to check (not linked to the document)
+InstallmentsImportSuggestion = Invoice suggested by the import: %s (%s), not linked to the document. If it is the one: "Already invoiced".
 InstallmentsImportSchedules = Payment schedules
 InstallmentsImportLines = Installments
 InstallmentsImportDifferent = Total different from the document
@@ -127,6 +139,7 @@ InstallmentsImportUnknownType = unknown type of document
 InstallmentsImportNoDocument = document not found
 InstallmentsImportExists = already has a payment schedule
 InstallmentsImportNoLine = no installment with an amount
+InstallmentsImportOtherEntity = document of another entity
 
 #
 # Errors
@@ -138,6 +151,15 @@ InstallmentsErrorDelete = An installment is paid, invoiced or direct debited: th
 InstallmentsErrorNotToInvoice = This installment is not to invoice
 InstallmentsErrorNotBillable = The proposal is not signed, or the order is not validated
 InstallmentsErrorSplitRule = Template %s: wrong free installments %s (percent:days[:eom], separated by ;, total 100)
-InstallmentsErrorInvoice = The invoice must be validated, belong to the same customer and not be linked to another installment
+InstallmentsErrorInvoice = The invoice must be validated, belong to the same customer, not be smaller than the installment and not be linked to another installment
 InstallmentsErrorModeNotAllowed = The author of the payment schedule may not validate or send invoices: the invoice stays a draft or is not sent
 InstallmentsPdfMore = + %s other installments
+InstallmentsErrorTemplate = Choose the email template of the invoices sent
+InstallmentsChecked = Checked
+InstallmentsConfirmChecked = The invoice of the installment of %s was validated or sent by hand: no longer to check? It keeps its invoice.
+InstallmentsEventChecked = Installment of %s checked, its invoice kept
+InstallmentsErrorBeforeDocument = The installment of %s is before the date of the document (%s)
+InstallmentsErrorFirstPercent = The share of the first installment must be at least 0 and below 100 %
+InstallmentsErrorToCheck = This installment is to check: link its invoice, abandon it, or invoice it again once checked
+InstallmentsErrorAlreadyInvoiced = Not invoiced: the document is already invoiced for %s out of %s
+InstallmentsErrorDebitInProgress = direct debit in progress, payment not recorded

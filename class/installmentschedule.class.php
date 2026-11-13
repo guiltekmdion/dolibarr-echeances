@@ -50,6 +50,8 @@ class InstallmentSchedule
 
 	const MAX_INSTALLMENTS = 120;	// Ten years of monthly installments
 
+	const CHECK_MARK = '⚑';	// Start of the lines the module adds to the note of an installment to check: never copied to an invoice
+
 	/**
 	 * @var array<string,string> Documents that can have a schedule: element => class
 	 */
@@ -124,6 +126,25 @@ class InstallmentSchedule
 	}
 
 	/**
+	 * An amount of the company currency in the currency of a document, as its PDF shows its totals (module Multicurrency, rate of the document)
+	 *
+	 * @param	CommonObject	$document	Invoice, proposal or order
+	 * @param	float			$amount		Amount in the currency of the company
+	 * @return	array{0:float,1:string}		Amount and code of its currency
+	 */
+	public function toDocumentCurrency(CommonObject $document, $amount)
+	{
+		global $conf;
+
+		'@phan-var-force Facture|Propal|Commande $document';
+		if (isModEnabled('multicurrency') && !empty($document->multicurrency_code) && (float) $document->multicurrency_tx != 1) {
+			return array(round($amount * (float) $document->multicurrency_tx, $this->decimals), (string) $document->multicurrency_code);
+		}
+
+		return array($amount, (string) $conf->currency);
+	}
+
+	/**
 	 * A proposal is invoiced once signed, an order once validated: never a draft, refused or cancelled one
 	 *
 	 * @param	CommonObject	$source		Proposal or order
@@ -190,10 +211,8 @@ class InstallmentSchedule
 		$decimals = $this->decimals;
 		$sql = "SELECT l.rowid, l.fk_schedule, l.rang, l.date_due, l.amount, l.fk_mode_reglement, l.fk_facture, l.fk_prelevement_demande, l.status, l.note,";
 		$sql .= " s.element, s.fk_element, s.billing, COALESCE(f.ref, p.ref, c.ref) as ref, so.rowid as socid, so.nom as socname,";
-		$sql .= " f.paye, f.fk_statut as invoicestatus, COALESCE(f.fk_mode_reglement, p.fk_mode_reglement, c.fk_mode_reglement) as docmode, fi.ref as invoiceref,";
-		$sql .= " (SELECT SUM(pf.amount) FROM ".$this->db->prefix()."paiement_facture as pf WHERE pf.fk_facture = f.rowid) as paid,";
-		$sql .= " (SELECT SUM(rc.amount_ttc) FROM ".$this->db->prefix()."societe_remise_except as rc INNER JOIN ".$this->db->prefix()."facture as fs ON fs.rowid = rc.fk_facture_source";
-		$sql .= " WHERE rc.fk_facture = f.rowid AND fs.type IN (".((int) Facture::TYPE_CREDIT_NOTE).", ".((int) Facture::TYPE_DEPOSIT).")) as discounts";	// Like allocate()
+		$sql .= " f.paye, f.fk_statut as invoicestatus, COALESCE(f.fk_mode_reglement, p.fk_mode_reglement, c.fk_mode_reglement) as docmode, fi.ref as invoiceref, fi.fk_statut as lineinvoicestatus,";
+		$sql .= " ".$this->getPaidSql();
 		$sql .= " FROM ".$this->db->prefix()."installments_line as l";
 		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule";
 		$sql .= " LEFT JOIN ".$this->db->prefix()."facture as f ON s.element = 'facture' AND f.rowid = s.fk_element";
@@ -215,6 +234,11 @@ class InstallmentSchedule
 		if (!$user->hasRight('societe', 'client', 'voir')) {
 			$sql .= " AND EXISTS (SELECT sc.fk_soc FROM ".$this->db->prefix()."societe_commerciaux as sc WHERE sc.fk_soc = so.rowid AND sc.fk_user = ".((int) $user->id).")";
 		}
+		foreach (array('facture' => 'facture', 'propal' => 'propal', 'commande' => 'commande') as $element => $right) {	// Only the documents the user may read
+			if (!$user->hasRight($right, 'lire')) {
+				$sql .= " AND s.element <> '".$this->db->escape($element)."'";
+			}
+		}
 		$sql .= $this->db->order('l.date_due,l.rang,l.rowid', 'ASC,ASC,ASC');	// By date in each schedule too, for the payments given by date
 		$resql = $this->db->query($sql);
 		if (!$resql) {
@@ -227,7 +251,8 @@ class InstallmentSchedule
 		while ($obj = $this->db->fetch_object($resql)) {
 			$row = (object) array('id' => (int) $obj->rowid, 'scheduleid' => (int) $obj->fk_schedule, 'rang' => (int) $obj->rang, 'date' => (int) $this->db->jdate($obj->date_due),
 				'amount' => (float) $obj->amount, 'mode' => ((int) $obj->fk_mode_reglement ?: (int) $obj->docmode), 'invoiceid' => (int) $obj->fk_facture,
-				'invoiceref' => (string) $obj->invoiceref, 'debitid' => (int) $obj->fk_prelevement_demande, 'status' => (int) $obj->status, 'note' => (string) $obj->note,
+				'invoiceref' => (string) $obj->invoiceref, 'invoicedraft' => ($obj->invoiceref !== null && (int) $obj->lineinvoicestatus == Facture::STATUS_DRAFT),
+				'debitid' => (int) $obj->fk_prelevement_demande, 'status' => (int) $obj->status, 'note' => (string) $obj->note,
 				'element' => (string) $obj->element, 'fk_element' => (int) $obj->fk_element, 'billing' => (int) $obj->billing, 'ref' => (string) $obj->ref,
 				'socid' => (int) $obj->socid, 'socname' => (string) $obj->socname, 'paid' => 0.0);
 			if ($row->element == 'facture' && (int) $obj->invoicestatus == Facture::STATUS_ABANDONED) {
@@ -252,6 +277,70 @@ class InstallmentSchedule
 		}
 
 		return $filtered;
+	}
+
+	/**
+	 * Installments left to pay of the invoices of the cash forecast of a bank account (compta/bank/treso.php): the invoices it lists, those
+	 * validated, not paid and of this account. What is paid is given by date like allocate(), the rank counts the abandoned installments, and the
+	 * installments never hold more than what the invoice has left to pay (the core shows the invoice for the rest).
+	 *
+	 * @param	int		$accountid		Id of the bank account
+	 * @return	array<int,stdClass>|int<-1,-1>	Installments by id of installment, by date in each schedule (invoiceid, ref, rank, count, left), -1 if error
+	 */
+	public function getForecast($accountid)
+	{
+		$decimals = $this->decimals;
+		$sql = "SELECT l.rowid, l.fk_schedule, l.amount, l.status, f.rowid as invoiceid, f.ref, f.total_ttc, ".$this->getPaidSql();
+		$sql .= " FROM ".$this->db->prefix()."installments_line as l";
+		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule AND s.element = 'facture' AND s.billing = 0";
+		$sql .= " INNER JOIN ".$this->db->prefix()."facture as f ON f.rowid = s.fk_element";
+		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND f.entity IN (".getEntity('invoice').")";
+		$sql .= " AND f.paye = 0 AND f.fk_statut = ".((int) Facture::STATUS_VALIDATED);
+		$sql .= " AND (f.fk_account IN (0, ".((int) $accountid).") OR f.fk_account IS NULL)";	// Like the core
+		$sql .= $this->db->order('l.date_due,l.rang,l.rowid', 'ASC,ASC,ASC');
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$this->error = $this->db->lasterror();
+			return -1;
+		}
+		$schedules = array();
+		while ($obj = $this->db->fetch_object($resql)) {
+			$schedules[(int) $obj->fk_schedule][] = $obj;
+		}
+		$lines = array();
+		foreach ($schedules as $rows) {
+			$left = (float) $rows[0]->paid + (float) $rows[0]->discounts;
+			$due = (float) $rows[0]->total_ttc - $left;
+			foreach ($rows as $i => $obj) {
+				if ((int) $obj->status == self::STATUS_ABANDONED) {
+					continue;
+				}
+				$paid = round(min((float) $obj->amount, max(0.0, $left)), $decimals);
+				$left -= $paid;
+				$rest = round(min((float) $obj->amount - $paid, max(0.0, $due)), $decimals);
+				$due -= $rest;
+				if ($rest > 0) {
+					$lines[(int) $obj->rowid] = (object) array('invoiceid' => (int) $obj->invoiceid, 'ref' => (string) $obj->ref, 'rank' => $i + 1, 'count' => count($rows), 'left' => $rest);
+				}
+			}
+		}
+
+		return $lines;
+	}
+
+	/**
+	 * Subqueries of the amounts already paid of an invoice (alias f): its payments, and its discounts used as payments (credit notes, deposits,
+	 * excess received and situations: the types the core adds to the payments in DiscountAbsolute::getSumCreditNotesUsed() and getSumDepositsUsed())
+	 *
+	 * @return	string	SQL columns "paid" and "discounts"
+	 */
+	private function getPaidSql()
+	{
+		$sql = "(SELECT SUM(pf.amount) FROM ".$this->db->prefix()."paiement_facture as pf WHERE pf.fk_facture = f.rowid) as paid,";
+		$sql .= " (SELECT SUM(rc.amount_ttc) FROM ".$this->db->prefix()."societe_remise_except as rc INNER JOIN ".$this->db->prefix()."facture as fs ON fs.rowid = rc.fk_facture_source";
+		$sql .= " WHERE rc.fk_facture = f.rowid AND fs.type IN (".((int) Facture::TYPE_STANDARD).", ".((int) Facture::TYPE_CREDIT_NOTE).", ".((int) Facture::TYPE_DEPOSIT).", ".((int) Facture::TYPE_SITUATION).")) as discounts";
+
+		return $sql;
 	}
 
 	/**
@@ -484,8 +573,8 @@ class InstallmentSchedule
 		if ($line->status == self::STATUS_ABANDONED) {
 			return 'abandoned';
 		}
-		if ($schedule->billing) {
-			return ($line->invoiceid ? 'invoiced' : ($line->status == self::STATUS_TOCHECK ? 'tocheck' : ($line->date < dol_get_first_hour($now) ? 'late' : 'todo')));
+		if ($schedule->billing) {	// To check: never invoiced by the job, or its invoice could not be validated or sent
+			return ($line->status == self::STATUS_TOCHECK ? 'tocheck' : ($line->invoiceid ? 'invoiced' : ($line->date < dol_get_first_hour($now) ? 'late' : 'todo')));
 		}
 		if (round($line->amount - $paid, $this->decimals) <= 0) {
 			return 'paid';
@@ -503,7 +592,7 @@ class InstallmentSchedule
 	 * @param	array<int,array{id?:int,date:int,amount:float,mode:int,note:string}>	$lines	Installments
 	 * @param	int				$billing		1 = one invoice per installment (proposals and orders)
 	 * @param	int				$invoicemode	Invoice of an installment: 0 = draft, 1 = validated, 2 = validated and sent
-	 * @param	int				$emailtemplate	Email template of the mode 2, 0 = the default one
+	 * @param	int				$emailtemplate	Email template of the mode 2, required by it
 	 * @return	int								Id of the schedule, <0 if error
 	 */
 	public function save(User $user, CommonObject $object, array $lines, $billing = 0, $invoicemode = 0, $emailtemplate = 0)
@@ -541,6 +630,10 @@ class InstallmentSchedule
 		}
 		$billing = ($object->element == 'facture' ? 0 : (int) (bool) $billing);
 		$invoicemode = min(max(0, (int) $invoicemode), $this->getInvoiceModeAllowed($user));	// Validated or sent only by a user allowed to
+		if ($billing && $invoicemode == self::INVOICE_SENT && $emailtemplate <= 0) {	// Never "the first template found": the core would take any public one
+			$this->error = $langs->trans('InstallmentsErrorTemplate');
+			return -1;
+		}
 		$decimals = $this->decimals;
 		$total = 0.0;
 		if (count($lines) > self::MAX_INSTALLMENTS) {
@@ -663,6 +756,56 @@ class InstallmentSchedule
 		}
 
 		return $locked;
+	}
+
+	/**
+	 * Installments a new calculation keeps: the ones that can no longer change, and the ones to check or abandoned (their state is kept)
+	 *
+	 * @param	CommonObject	$object		Document of the schedule
+	 * @param	stdClass		$schedule	Schedule
+	 * @return	array<int,stdClass>			Installments by id
+	 */
+	public function getKept(CommonObject $object, stdClass $schedule)
+	{
+		$kept = $this->getLocked($object, $schedule);
+		foreach ($schedule->lines as $line) {
+			if (in_array($line->status, array(self::STATUS_TOCHECK, self::STATUS_ABANDONED))) {
+				$kept[$line->id] = $line;
+			}
+		}
+
+		return $kept;
+	}
+
+	/**
+	 * Checks of the installments typed in the form: an amount above zero, and no new date before the date of the document.
+	 * Not in store(): a schedule copied from an order, or imported, keeps its dates, and so does an installment saved again unchanged.
+	 *
+	 * @param	CommonObject	$object		Invoice, proposal or order
+	 * @param	array<int,array{id?:int,date:int,amount:float}>	$lines	Installments
+	 * @param	array<int,stdClass>		$existing	Installments of the schedule saved, by id: their date is not checked again
+	 * @return	string						Error, '' if OK
+	 */
+	public function checkLines(CommonObject $object, array $lines, array $existing = array())
+	{
+		global $langs;
+
+		$langs->load('installments@installments');
+		'@phan-var-force Facture|Propal|Commande $object';
+		foreach ($lines as $line) {
+			if (empty($line['date']) || (float) $line['amount'] <= 0) {
+				return $langs->trans('InstallmentsErrorLine');
+			}
+			$old = (!empty($line['id']) && isset($existing[$line['id']]) ? $existing[$line['id']] : null);
+			if ($old && dol_print_date($old->date, 'dayrfc') == dol_print_date((int) $line['date'], 'dayrfc')) {
+				continue;
+			}
+			if (!empty($object->date) && dol_print_date((int) $line['date'], 'dayrfc') < dol_print_date((int) $object->date, 'dayrfc')) {
+				return $langs->trans('InstallmentsErrorBeforeDocument', dol_print_date((int) $line['date'], 'day'), dol_print_date((int) $object->date, 'day'));
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -803,6 +946,62 @@ class InstallmentSchedule
 	}
 
 	/**
+	 * At the validation of an invoice: a schedule made on the draft whose total is no longer the one of the invoice (lines changed after)
+	 * is put to the scale of the invoice: same dates and shares, the last installment takes the rounding. The installments that can no
+	 * longer change stay, the others share the rest.
+	 *
+	 * @param	User		$user		User validating
+	 * @param	Facture		$invoice	Invoice
+	 * @return	int<-1,1>				1 if changed, 0 if nothing to do, -1 if error
+	 */
+	public function rescale(User $user, Facture $invoice)
+	{
+		global $conf, $langs;
+
+		$schedule = $this->fetch('facture', (int) $invoice->id);
+		if (!is_object($schedule)) {
+			return ($schedule < 0 ? -1 : 0);
+		}
+		$locked = $this->getLocked($invoice, $schedule);
+		$fixed = 0.0;
+		$open = 0.0;
+		foreach ($schedule->lines as $line) {
+			if (isset($locked[$line->id]) || $line->status == self::STATUS_ABANDONED) {
+				$fixed += $line->amount;
+			} else {
+				$open += $line->amount;
+			}
+		}
+		$target = round((float) $invoice->total_ttc - $fixed, $this->decimals);
+		if (round($fixed + $open - (float) $invoice->total_ttc, $this->decimals) == 0 || $open <= 0 || $target <= 0) {
+			return 0;	// Same total, or nothing left to share: the tab says the difference
+		}
+		$lines = array();
+		$sum = 0.0;
+		$last = 0;	// One open installment at least: $open > 0
+		foreach ($schedule->lines as $line) {
+			$amount = $line->amount;
+			if (!isset($locked[$line->id]) && $line->status != self::STATUS_ABANDONED) {
+				$amount = round($line->amount * $target / $open, $this->decimals);
+				$sum += $amount;
+				$last = count($lines);
+			}
+			$lines[] = array('id' => $line->id, 'date' => $line->date, 'amount' => $amount, 'mode' => $line->mode, 'note' => $line->note);
+		}
+		$lines[$last]['amount'] = round($lines[$last]['amount'] + $target - $sum, $this->decimals);
+		if (min(array_column($lines, 'amount')) <= 0) {	// A share too small: the tab says the difference
+			return 0;
+		}
+		if ($this->store($user, $invoice, $lines, 0, 0, 0) < 0) {
+			return -1;
+		}
+		$langs->load('installments@installments');
+		setEventMessages($langs->trans('InstallmentsRescaled', price($fixed + $open, 0, $langs, 1, -1, -1, $conf->currency), price((float) $invoice->total_ttc, 0, $langs, 1, -1, -1, $conf->currency)), null, 'warnings');
+
+		return 1;
+	}
+
+	/**
 	 * The 60 days rule between professionals in France (article L441-10 of the Code de commerce): a schedule of expected payments
 	 * of a company customer must not end more than 60 days after the date of the document.
 	 *
@@ -831,8 +1030,12 @@ class InstallmentSchedule
 	}
 
 	/**
-	 * Create the invoice of an installment of a proposal or an order: one line per VAT rate and type of the document, in proportion;
-	 * the last installment takes what is left of each line. The invoice is then validated or sent if the schedule asks for it.
+	 * Create the invoice of an installment of a proposal or an order: one line per VAT rate and type of the document, in proportion, with
+	 * the designations of its lines; the last installment takes what is left of each line. Each invoice is its installment to the cent
+	 * (what the customer pays); its VAT is rounded on it, so the sum of the VAT of the invoices may differ by a cent or two from the
+	 * document. A line with local taxes is made without tax (the core adds them to an amount with tax). Never more than the total of the
+	 * document with the invoices already linked to it: the installment is then to check. The invoice is then validated or sent if the
+	 * schedule asks for it; if it can not be, the installment is to check, and the invoice is sent from its card.
 	 *
 	 * @param	User		$user		User creating
 	 * @param	stdClass	$schedule	Billing schedule
@@ -845,8 +1048,8 @@ class InstallmentSchedule
 		global $conf, $langs;
 
 		$langs->load('installments@installments');
-		if (!$schedule->billing || $line->invoiceid || $line->status == self::STATUS_ABANDONED || !isset(self::ELEMENTS[$schedule->element])) {
-			$this->error = $langs->trans('InstallmentsErrorNotToInvoice');
+		if (!$schedule->billing || $line->invoiceid || in_array($line->status, array(self::STATUS_ABANDONED, self::STATUS_TOCHECK)) || !isset(self::ELEMENTS[$schedule->element])) {
+			$this->error = $langs->trans($line->status == self::STATUS_TOCHECK ? 'InstallmentsErrorToCheck' : 'InstallmentsErrorNotToInvoice');
 			return -1;
 		}
 		if (!$user->hasRight('facture', 'creer')) {
@@ -866,19 +1069,37 @@ class InstallmentSchedule
 		$source->fetch_thirdparty();
 		$decimals = $this->decimals;
 
-		// Amounts of the document by VAT rate, local taxes and type of line
+		// Never invoiced twice: the invoices linked to the document or to its installments, abandoned ones left out, credit notes deducted
+		$invoiced = $this->getInvoicedTotal($schedule);
+		if ($invoiced === null) {
+			return -1;
+		}
+		if (round($invoiced + $line->amount - (float) $source->total_ttc - count($schedule->lines) * pow(10, -$decimals), $decimals) > 0) {	// One cent of rounding per installment
+			$reason = $langs->transnoentities('InstallmentsErrorAlreadyInvoiced', price($invoiced, 0, $langs, 1, -1, -1, $conf->currency), price((float) $source->total_ttc, 0, $langs, 1, -1, -1, $conf->currency));
+			$this->markToCheck($line, $reason);
+			$this->error = $source->ref.': '.$reason;
+			return -1;
+		}
+
+		// Amounts of the document by VAT rate, local taxes and type of line, and the designations of its lines
 		$groups = array();
+		$labels = array();
 		foreach ($source->lines as $sourceline) {
 			if (!in_array((int) $sourceline->product_type, array(0, 1)) || (int) $sourceline->special_code == 3) {	// Titles, subtotals and options are not invoiced
 				continue;
 			}
 			$key = price2num($sourceline->tva_tx).'|'.$sourceline->vat_src_code.'|'.((int) $sourceline->product_type).'|'.price2num($sourceline->localtax1_tx).'|'.price2num($sourceline->localtax2_tx);
-			$groups[$key] = ($groups[$key] ?? 0.0) + (float) $sourceline->total_ttc;
+			$groups[$key]['ht'] = ($groups[$key]['ht'] ?? 0.0) + (float) $sourceline->total_ht;
+			$groups[$key]['ttc'] = ($groups[$key]['ttc'] ?? 0.0) + (float) $sourceline->total_ttc;
+			$label = trim(dol_string_nohtmltag((string) ($sourceline->fk_product > 0 && !empty($sourceline->product_label) ? $sourceline->product_label : $sourceline->desc)));
+			if ($label !== '') {
+				$labels[$key][] = dol_trunc(strtok($label, "\n"), 60);
+			}
 		}
 		$open = 0;	// Installments left to invoice besides this one
 		$nb = 0;
 		$rank = 0;
-		$invoiced = array();
+		$invoiceids = array();
 		$abandoned = false;
 		foreach ($schedule->lines as $other) {
 			if ($other->status == self::STATUS_ABANDONED) {
@@ -891,27 +1112,37 @@ class InstallmentSchedule
 			} elseif (!$other->invoiceid) {
 				$open++;
 			} else {
-				$invoiced[] = $other->invoiceid;
+				$invoiceids[] = $other->invoiceid;
 			}
 		}
-		$amounts = array();
+		$amounts = array();	// By group: base of the line (TTC, or HT with local taxes), amount including tax, amount without tax
 		if ($open == 0 && !$abandoned) {	// Last installment: what is left of each line, after the invoices of the other installments (an abandoned one is not invoiced)
-			$billed = $this->getInvoicedByGroup($invoiced);
+			$billed = $this->getInvoicedByGroup($invoiceids);
 			if (!is_array($billed)) {
 				return -1;
 			}
-			foreach ($groups as $key => $amount) {
-				$amounts[$key] = round($amount - ($billed[$key] ?? 0.0), $decimals);
+			foreach ($groups as $key => $group) {
+				$amounts[$key] = array('TTC', round($group['ttc'] - ($billed[$key]['ttc'] ?? 0.0), $decimals), round($group['ht'] - ($billed[$key]['ht'] ?? 0.0), $decimals));
 			}
-		} else {
+			if (array_diff_key($billed, $groups) || round(array_sum(array_column($amounts, 1)) - $line->amount, $decimals) != 0) {	// An invoice of another kind given to an installment: in proportion
+				$amounts = array();
+			}
+		}
+		if (empty($amounts)) {
 			$ratio = ((float) $source->total_ttc != 0 ? $line->amount / (float) $source->total_ttc : 0.0);
 			$largest = '';
-			foreach ($groups as $key => $amount) {
-				$amounts[$key] = round($amount * $ratio, $decimals);
-				$largest = ($largest === '' || abs($amount) > abs($groups[$largest]) ? $key : $largest);
+			foreach ($groups as $key => $group) {
+				$amounts[$key] = array('TTC', round($group['ttc'] * $ratio, $decimals), round($group['ht'] * $ratio, $decimals));
+				$largest = ($largest === '' || abs($group['ttc']) > abs($groups[$largest]['ttc']) ? $key : $largest);
 			}
 			if ($largest !== '') {	// The rounding on the largest line: the invoice is the amount of the installment
-				$amounts[$largest] = round($amounts[$largest] + $line->amount - array_sum($amounts), $decimals);
+				$amounts[$largest][1] = round($amounts[$largest][1] + $line->amount - array_sum(array_column($amounts, 1)), $decimals);
+			}
+		}
+		foreach ($amounts as $key => $amount) {	// With local taxes, the core adds them to an amount including tax: the line is made without tax
+			list(, , , $localtax1, $localtax2) = explode('|', $key);
+			if ((float) $localtax1 != 0 || (float) $localtax2 != 0) {
+				$amounts[$key][0] = 'HT';
 			}
 		}
 
@@ -931,18 +1162,23 @@ class InstallmentSchedule
 		$invoice->fk_account = (int) $source->fk_account;
 		$invoice->fk_project = (int) $source->fk_project;
 		$invoice->ref_client = (string) $source->ref_client;
+		$invoice->multicurrency_code = (string) $source->multicurrency_code;	// The currency and the rate of the document
+		$invoice->multicurrency_tx = (float) $source->multicurrency_tx;
 		$invoice->linked_objects = array($schedule->element => $source->id);
 
 		$this->db->begin();
 		$invoiceid = $invoice->create($user);
 		$error = ($invoiceid <= 0 ? $invoice->error : '');
-		$desc = $outputlangs->transnoentities('InstallmentsInvoiceLine', (string) $rank, (string) $nb, $source->ref).($line->note !== '' ? "\n".$line->note : '');
+		$note = trim((string) preg_replace('/(\\\\n|\s)*'.self::CHECK_MARK.'.*$/su', '', $line->note));	// The note of the user: the reasons of a check, always added last, cut
+		$desc = $outputlangs->transnoentities('InstallmentsInvoiceLine', (string) $rank, (string) $nb, $source->ref).($note !== '' ? "\n".$note : '');
 		foreach ($amounts as $key => $amount) {
-			if ($error || $amount == 0) {
+			if ($error || $amount[$amount[0] == 'HT' ? 2 : 1] == 0) {
 				continue;
 			}
 			list($rate, $code, $type, $localtax1, $localtax2) = explode('|', $key);
-			if ($invoice->addline($desc, 0, 1, $rate.($code ? ' ('.$code.')' : ''), (float) $localtax1, (float) $localtax2, 0, 0, '', '', 0, 0, 0, 'TTC', $amount, (int) $type) < 0) {
+			$linedesc = $desc.(empty($labels[$key]) ? '' : "\n".dol_trunc(implode(', ', array_unique($labels[$key])), 500));
+			$vat = $rate.($code ? ' ('.$code.')' : '');
+			if ($invoice->addline($linedesc, ($amount[0] == 'HT' ? $amount[2] : 0), 1, $vat, (float) $localtax1, (float) $localtax2, 0, 0, '', '', 0, 0, 0, $amount[0], ($amount[0] == 'TTC' ? $amount[1] : 0), (int) $type) < 0) {
 				$error = $invoice->error;
 			}
 		}
@@ -959,6 +1195,10 @@ class InstallmentSchedule
 		}
 		$this->db->commit();
 		$line->invoiceid = $invoiceid;
+		$billable = ($source instanceof Commande || (int) $source->status == Propal::STATUS_SIGNED);	// A proposal billed already: not again (PDF, trigger)
+		if ($open == 0 && $billable && $source->classifyBilled($user) < 0) {	// All its installments invoiced: the document is billed, the core no longer offers to invoice it
+			$this->errors[] = $source->ref.': '.$source->error;
+		}
 
 		$mode = ($mode < 0 ? $schedule->invoice_mode : $mode);
 		if ($mode >= self::INVOICE_VALIDATED) {	// Validated and sent only if the author of the schedule (his rights read again) and the user may
@@ -973,19 +1213,22 @@ class InstallmentSchedule
 			}
 		}
 		if ($mode >= self::INVOICE_VALIDATED) {
+			$failure = '';
 			$invoice->fetch($invoiceid);
 			if ($invoice->validate($user) <= 0) {
-				$this->errors[] = $source->ref.': '.$invoice->error;
-				return $invoiceid;
+				$failure = $invoice->error;
+			} else {
+				$invoice->fetch($invoiceid);
+				if ((!getDolGlobalString('MAIN_DISABLE_PDF_AUTOUPDATE') || $mode == self::INVOICE_SENT)	// Never sent without its PDF
+					&& $invoice->generateDocument($invoice->model_pdf ?: getDolGlobalString('FACTURE_ADDON_PDF'), $outputlangs) <= 0) {
+					$failure = $invoice->error;
+				} elseif ($mode == self::INVOICE_SENT && $this->sendInvoice($user, $invoice, $schedule->fk_email_template, $outputlangs) < 0) {
+					$failure = $this->error;
+				}
 			}
-			$invoice->fetch($invoiceid);
-			if ((!getDolGlobalString('MAIN_DISABLE_PDF_AUTOUPDATE') || $mode == self::INVOICE_SENT)	// Never sent without its PDF
-				&& $invoice->generateDocument($invoice->model_pdf ?: getDolGlobalString('FACTURE_ADDON_PDF'), $outputlangs) <= 0) {
-				$this->errors[] = $invoice->ref.': '.$invoice->error;
-				return $invoiceid;
-			}
-			if ($mode == self::INVOICE_SENT && $this->sendInvoice($user, $invoice, $schedule->fk_email_template, $outputlangs) < 0) {
-				$this->errors[] = $invoice->ref.': '.$this->error;
+			if ($failure !== '') {	// Said in the job output, and on the installment: to check until the invoice is sent from its card
+				$this->errors[] = ($invoice->ref ?: $source->ref).': '.$failure;
+				$this->markToCheck($line, dol_print_date(dol_now(), 'day').' '.($invoice->ref ?: $source->ref).': '.$failure);
 			}
 		}
 
@@ -993,10 +1236,53 @@ class InstallmentSchedule
 	}
 
 	/**
-	 * Amounts including tax of invoices by VAT rate and type of line (abandoned invoices left out)
+	 * Amount already invoiced for the document of a billing schedule: its linked invoices and the invoices of its installments (made by
+	 * hand and given to an installment), abandoned ones left out, with the credit notes of these invoices (negative amounts)
+	 *
+	 * @param	stdClass	$schedule	Billing schedule
+	 * @return	?float					Amount including tax, null if error
+	 */
+	private function getInvoicedTotal(stdClass $schedule)
+	{
+		$sql = "SELECT SUM(f.total_ttc) as total FROM ".$this->db->prefix()."facture as f WHERE f.fk_statut <> ".((int) Facture::STATUS_ABANDONED);
+		$sql .= " AND (CASE WHEN f.type = ".((int) Facture::TYPE_CREDIT_NOTE)." THEN f.fk_facture_source ELSE f.rowid END) IN (";	// A credit note: by its invoice
+		$sql .= "SELECT ee.fk_target FROM ".$this->db->prefix()."element_element as ee WHERE ee.sourcetype = '".$this->db->escape($schedule->element)."'";
+		$sql .= " AND ee.fk_source = ".((int) $schedule->fk_element)." AND ee.targettype = 'facture'";
+		$sql .= " UNION SELECT ee.fk_source FROM ".$this->db->prefix()."element_element as ee WHERE ee.targettype = '".$this->db->escape($schedule->element)."'";
+		$sql .= " AND ee.fk_target = ".((int) $schedule->fk_element)." AND ee.sourcetype = 'facture'";
+		$sql .= " UNION SELECT l.fk_facture FROM ".$this->db->prefix()."installments_line as l WHERE l.fk_schedule = ".((int) $schedule->id)." AND l.fk_facture IS NOT NULL)";
+		$resql = $this->db->query($sql);
+		if (!$resql) {
+			$this->error = $this->db->lasterror();
+			return null;
+		}
+		$obj = $this->db->fetch_object($resql);
+
+		return (float) ($obj ? $obj->total : 0.0);
+	}
+
+	/**
+	 * An installment to check, with the reason added to its note: the job no longer invoices it, the list shows it
+	 *
+	 * @param	stdClass	$line		Installment
+	 * @param	string		$reason		Reason, in the language of the user
+	 * @return	void
+	 */
+	private function markToCheck(stdClass $line, $reason)
+	{
+		$line->note = dol_concatdesc($line->note, self::CHECK_MARK.' '.$reason);
+		$line->status = self::STATUS_TOCHECK;
+		$sql = "UPDATE ".$this->db->prefix()."installments_line SET status = ".self::STATUS_TOCHECK.", note = '".$this->db->escape($line->note)."' WHERE rowid = ".((int) $line->id);
+		if (!$this->db->query($sql)) {
+			$this->errors[] = $this->db->lasterror();
+		}
+	}
+
+	/**
+	 * Amounts with and without tax of invoices by VAT rate and type of line (abandoned invoices left out)
 	 *
 	 * @param	int[]	$invoiceids		Invoices
-	 * @return	array<string,float>|int<-1,-1>	Amounts by "rate|code|type", -1 if error
+	 * @return	array<string,array{ttc:float,ht:float}>|int<-1,-1>	Amounts by "rate|code|type|localtax1|localtax2", -1 if error
 	 */
 	private function getInvoicedByGroup(array $invoiceids)
 	{
@@ -1004,7 +1290,7 @@ class InstallmentSchedule
 		if (empty($invoiceids)) {
 			return $billed;
 		}
-		$sql = "SELECT fd.tva_tx, fd.vat_src_code, fd.product_type, fd.localtax1_tx, fd.localtax2_tx, SUM(fd.total_ttc) as total FROM ".$this->db->prefix()."facturedet as fd";
+		$sql = "SELECT fd.tva_tx, fd.vat_src_code, fd.product_type, fd.localtax1_tx, fd.localtax2_tx, SUM(fd.total_ttc) as total, SUM(fd.total_ht) as total_ht FROM ".$this->db->prefix()."facturedet as fd";
 		$sql .= " INNER JOIN ".$this->db->prefix()."facture as f ON f.rowid = fd.fk_facture";
 		$sql .= " WHERE f.rowid IN (".$this->db->sanitize(implode(',', array_map('intval', $invoiceids))).") AND f.fk_statut <> ".((int) Facture::STATUS_ABANDONED);
 		$sql .= " GROUP BY fd.tva_tx, fd.vat_src_code, fd.product_type, fd.localtax1_tx, fd.localtax2_tx";
@@ -1015,7 +1301,8 @@ class InstallmentSchedule
 		}
 		while ($obj = $this->db->fetch_object($resql)) {
 			$key = price2num($obj->tva_tx).'|'.$obj->vat_src_code.'|'.((int) $obj->product_type).'|'.price2num($obj->localtax1_tx).'|'.price2num($obj->localtax2_tx);
-			$billed[$key] = ($billed[$key] ?? 0.0) + (float) $obj->total;
+			$billed[$key]['ttc'] = ($billed[$key]['ttc'] ?? 0.0) + (float) $obj->total;
+			$billed[$key]['ht'] = ($billed[$key]['ht'] ?? 0.0) + (float) $obj->total_ht;
 		}
 
 		return $billed;
@@ -1026,7 +1313,7 @@ class InstallmentSchedule
 	 *
 	 * @param	User		$user			User sending
 	 * @param	Facture		$invoice		Validated invoice, with its PDF
-	 * @param	int			$templateid		Email template (type facture_send), 0 = the default one
+	 * @param	int			$templateid		Email template (type facture_send) chosen in the schedule, never "the first one found"
 	 * @param	Translate	$outputlangs	Language of the customer
 	 * @return	int<-1,1>					1 if sent, -1 if error
 	 */
@@ -1036,7 +1323,7 @@ class InstallmentSchedule
 
 		$invoice->fetch_thirdparty();
 		$formmail = new FormMail($this->db);
-		$tpl = $formmail->getEMailTemplate($this->db, 'facture_send', $user, $outputlangs, $templateid);
+		$tpl = ($templateid > 0 ? $formmail->getEMailTemplate($this->db, 'facture_send', $user, $outputlangs, $templateid) : null);	// 0 or -1: the first public template, any one
 		if (!is_object($tpl) || empty($tpl->id)) {
 			$langs->load('errors');
 			$this->error = $langs->trans('ErrorFailedToFindEmailTemplate', (string) $templateid);
@@ -1179,14 +1466,16 @@ class InstallmentSchedule
 	}
 
 	/**
-	 * Scheduled job: a direct debit request for each unpaid installment of an invoice paid by direct debit, some days before its date.
+	 * Scheduled job: a direct debit request for each unpaid installment of an invoice paid by direct debit, some days before its date, from
+	 * the first run of the job on (the older ones are asked by hand), never for a disputed invoice. An installment without its own mode
+	 * follows the one of the invoice. After a rejection nothing is asked again: the user decides.
 	 * The core keeps one pending request per invoice unless WITHDRAW_STRICT_CHECK_AMOUNT is set: the next installment waits for the next run.
 	 *
 	 * @return	int		0 if OK, 1 if some invoices failed
 	 */
 	public function createDirectDebits()
 	{
-		global $langs, $user;
+		global $conf, $langs, $user;
 
 		$langs->loadLangs(array('bills', 'withdrawals', 'installments@installments'));
 		$this->output = '';
@@ -1196,13 +1485,22 @@ class InstallmentSchedule
 		if ($modeid <= 0) {	// No mode "direct debit" in the dictionary
 			return 0;
 		}
+		$today = dol_get_first_hour(dol_now());
+		if (!getDolGlobalInt('INSTALLMENTS_DEBIT_START_DATE')) {	// From the first run on: the installments due before are asked by hand
+			$resql = $this->db->query("SELECT COUNT(rowid) as nb FROM ".$this->db->prefix()."installments_line WHERE fk_prelevement_demande > 0");
+			$obj = ($resql ? $this->db->fetch_object($resql) : null);
+			require_once DOL_DOCUMENT_ROOT.'/core/lib/admin.lib.php';	// A job of 1.1.0 that already asked: no start date, its installments go on
+			dolibarr_set_const($this->db, 'INSTALLMENTS_DEBIT_START_DATE', (string) ($obj && $obj->nb > 0 ? 1 : $today), 'chaine', 0, '', $conf->entity);
+		}
+		$start = dol_get_first_hour(getDolGlobalInt('INSTALLMENTS_DEBIT_START_DATE', $today));
 
 		$sql = "SELECT DISTINCT s.fk_element FROM ".$this->db->prefix()."installments_line as l";
 		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule AND s.element = 'facture'";
 		$sql .= " INNER JOIN ".$this->db->prefix()."facture as f ON f.rowid = s.fk_element";
-		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND l.status = ".self::STATUS_OPEN." AND l.date_due <= '".$this->db->idate($limit)."'";
+		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND l.status = ".self::STATUS_OPEN;
+		$sql .= " AND l.date_due <= '".$this->db->idate($limit)."' AND l.date_due >= '".$this->db->idate($start)."'";
 		$sql .= " AND (l.fk_mode_reglement = ".((int) $modeid)." OR (l.fk_mode_reglement = 0 AND f.fk_mode_reglement = ".((int) $modeid)."))";
-		$sql .= " AND f.fk_statut = ".((int) Facture::STATUS_VALIDATED)." AND f.paye = 0";
+		$sql .= " AND f.fk_statut = ".((int) Facture::STATUS_VALIDATED)." AND f.paye = 0 AND COALESCE(f.dispute_status, 0) <> 1";	// Never a disputed invoice
 		$sql .= " AND NOT EXISTS (SELECT pd.rowid FROM ".$this->db->prefix()."prelevement_demande as pd WHERE pd.rowid = l.fk_prelevement_demande)";
 		$resql = $this->db->query($sql);
 		if (!$resql) {
@@ -1225,8 +1523,8 @@ class InstallmentSchedule
 			$paid = $this->allocate($invoice, $schedule->lines);
 			$before = (int) $invoice->mode_reglement_id;	// Read before the core sets it to direct debit at the first request
 			foreach ($schedule->lines as $line) {
-				$remain = round($line->amount - $paid[$line->id], $this->decimals);
-				if ($line->status != self::STATUS_OPEN || $line->date > $limit || $remain <= 0 || ($line->mode ?: $before) != $modeid || $this->debitExists($line->debitid)) {
+				$remain = min(round($line->amount - $paid[$line->id], $this->decimals), (float) $invoice->getRemainToPay());	// A schedule above its invoice: never more than owed
+				if ($line->status != self::STATUS_OPEN || $line->date > $limit || $line->date < $start || $remain <= 0 || ($line->mode ?: $before) != $modeid || $this->debitExists($line->debitid)) {
 					continue;
 				}
 				$this->db->begin();	// The request and its installment together
@@ -1274,17 +1572,19 @@ class InstallmentSchedule
 	}
 
 	/**
-	 * Record the payment of installments of invoices: one payment per invoice for what is left to pay on its selected installments.
-	 * An installment already paid is skipped, so a second run records nothing.
+	 * Record the payment of installments of invoices: one payment per invoice for what is left to pay on its selected installments, never
+	 * more than what the invoice has left to pay. An installment already paid is skipped, so a second run records nothing. An invoice with
+	 * a direct debit in progress (request not credited yet) is skipped: the bank will take the money.
 	 *
 	 * @param	User	$user		User recording
 	 * @param	int[]	$lineids	Installments
 	 * @param	int		$datepaye	Date of the payment
 	 * @param	int		$modeid		Payment mode (llx_c_paiement)
 	 * @param	int		$accountid	Bank account, 0 if the module Banks is off
+	 * @param	string	$num		Reference of the payment (number of the transfer or of the cheque)
 	 * @return	int					Number of payments recorded, <0 if error
 	 */
-	public function recordPayments(User $user, array $lineids, $datepaye, $modeid, $accountid)
+	public function recordPayments(User $user, array $lineids, $datepaye, $modeid, $accountid, $num = '')
 	{
 		global $langs;
 
@@ -1324,12 +1624,31 @@ class InstallmentSchedule
 		while ($obj = $this->db->fetch_object($resql)) {
 			$byinvoice[(int) $obj->fk_element][] = (int) $obj->rowid;
 		}
+		$debits = array();	// Invoices with a direct debit in progress: request waiting, or in an order not credited yet
+		if (!empty($byinvoice)) {
+			$sql = "SELECT DISTINCT pd.fk_facture FROM ".$this->db->prefix()."prelevement_demande as pd";
+			$sql .= " LEFT JOIN ".$this->db->prefix()."prelevement_bons as pb ON pb.rowid = pd.fk_prelevement_bons";
+			$sql .= " WHERE pd.fk_facture IN (".$this->db->sanitize(implode(',', array_map('intval', array_keys($byinvoice)))).")";
+			$sql .= " AND (pd.traite = 0 OR pb.statut IN (0, 1))";	// BonPrelevement::STATUS_DRAFT and STATUS_TRANSFERED: not credited yet
+			$resql = $this->db->query($sql);
+			if (!$resql) {
+				$this->error = $this->db->lasterror();
+				return -1;
+			}
+			while ($obj = $this->db->fetch_object($resql)) {
+				$debits[(int) $obj->fk_facture] = 1;
+			}
+		}
 		$nb = 0;
 		$code = dol_getIdFromCode($this->db, $modeid, 'c_paiement', 'id', 'code', 1);
 		foreach ($byinvoice as $invoiceid => $ids) {
 			$invoice = new Facture($this->db);
 			$schedule = $this->fetch('facture', $invoiceid);
 			if ($invoice->fetch($invoiceid) <= 0 || !is_object($schedule) || $invoice->status != Facture::STATUS_VALIDATED || $invoice->paye) {
+				continue;
+			}
+			if (isset($debits[$invoiceid])) {
+				$this->errors[] = $invoice->ref.': '.$langs->trans('InstallmentsErrorDebitInProgress');
 				continue;
 			}
 			$paid = $this->allocate($invoice, $schedule->lines);
@@ -1339,7 +1658,7 @@ class InstallmentSchedule
 					$amount += $line->amount - $paid[$line->id];
 				}
 			}
-			$amount = (float) price2num($amount, 'MT');
+			$amount = (float) price2num(min($amount, (float) $invoice->getRemainToPay()), 'MT');	// A schedule that no longer matches its invoice pays only the invoice
 			if ($amount <= 0) {
 				continue;
 			}
@@ -1349,7 +1668,7 @@ class InstallmentSchedule
 			$payment->amounts = array($invoice->id => $amount);
 			$payment->paiementid = $modeid;
 			$payment->paiementcode = (string) $code;
-			$payment->num_payment = '';
+			$payment->num_payment = $num;
 			$payment->note_private = $langs->transnoentities('InstallmentsBulkPayment');
 			$payment->fk_account = $accountid;
 			$result = $payment->create($user, 1);
@@ -1369,49 +1688,92 @@ class InstallmentSchedule
 	}
 
 	/**
-	 * Attach an installment of a billing schedule to an invoice made by hand, or abandon it
+	 * Attach an installment of a billing schedule to an invoice made by hand, abandon it, unlink its invoice or invoice it again. Asks the
+	 * right to create invoices too (giving up an invoice is a billing decision), and writes an event in the agenda of the document.
 	 *
 	 * @param	User	$user		User
 	 * @param	int		$lineid		Installment
-	 * @param	int		$invoiceid	Invoice made by hand to link, 0 to abandon the installment, -1 to unlink its invoice (to check again)
+	 * @param	int		$invoiceid	Invoice made by hand to link (of the customer, not smaller than the installment), 0 to abandon the installment,
+	 *								-1 to unlink its invoice (to check again), -2 to invoice again an installment to check
 	 * @return	int<-1,1>			1 if OK, -1 if error
 	 */
 	public function settle(User $user, $lineid, $invoiceid)
 	{
-		global $langs;
+		global $conf, $langs;
 
 		$langs->load('installments@installments');
-		$sql = "SELECT l.rowid, l.fk_facture, s.element, s.fk_element, s.billing FROM ".$this->db->prefix()."installments_line as l";
+		$sql = "SELECT l.rowid, l.fk_facture, l.amount, l.date_due, l.status, s.element, s.fk_element, s.billing FROM ".$this->db->prefix()."installments_line as l";
 		$sql .= " INNER JOIN ".$this->db->prefix()."installments_schedule as s ON s.rowid = l.fk_schedule";
 		$sql .= " WHERE s.entity IN (".getEntity('installments').") AND l.rowid = ".((int) $lineid);
 		$resql = $this->db->query($sql);
 		$obj = ($resql ? $this->db->fetch_object($resql) : null);
-		if (!$obj || !$user->hasRight('installments', 'write') || !$obj->billing || ($invoiceid >= 0) == !empty($obj->fk_facture)) {	// Installments to invoice only; unlink: an invoiced one
+		if (!$obj || !$obj->billing || ($invoiceid != -2 && ($invoiceid == -1) == empty($obj->fk_facture)) || ($invoiceid == -2 && (int) $obj->status != self::STATUS_TOCHECK)) {	// Unlink: an invoiced one only; checked: invoiced or not
 			$this->error = ($resql ? $langs->trans('InstallmentsErrorNotToInvoice') : $this->db->lasterror());
 			return -1;
 		}
+		if (!$user->hasRight('installments', 'write') || !$user->hasRight('facture', 'creer')) {
+			$this->error = $langs->trans('NotEnoughPermissions');
+			return -1;
+		}
+		$class = self::ELEMENTS[$obj->element];
+		$source = new $class($this->db);
+		if ($source->fetch((int) $obj->fk_element) <= 0) {
+			$this->error = $source->error;
+			return -1;
+		}
+		$day = dol_print_date($this->db->jdate($obj->date_due), 'day');
 		if ($invoiceid > 0) {
-			$class = self::ELEMENTS[$obj->element];
-			$source = new $class($this->db);
 			$invoice = new Facture($this->db);
 			$sqlused = "SELECT COUNT(rowid) as nb FROM ".$this->db->prefix()."installments_line WHERE fk_facture = ".((int) $invoiceid);
 			$resused = $this->db->query($sqlused);
 			$used = ($resused ? $this->db->fetch_object($resused) : null);
-			if ($source->fetch((int) $obj->fk_element) <= 0 || $invoice->fetch($invoiceid) <= 0 || $invoice->socid != $source->socid
+			if ($invoice->fetch($invoiceid) <= 0 || $invoice->socid != $source->socid
 				|| !in_array((int) $invoice->entity, array_map('intval', explode(',', getEntity('invoice'))))
-				|| in_array((int) $invoice->status, array(Facture::STATUS_DRAFT, Facture::STATUS_ABANDONED)) || $invoice->type == Facture::TYPE_CREDIT_NOTE || !$used || $used->nb > 0) {	// One installment per invoice
+				|| in_array((int) $invoice->status, array(Facture::STATUS_DRAFT, Facture::STATUS_ABANDONED)) || $invoice->type == Facture::TYPE_CREDIT_NOTE || !$used || $used->nb > 0	// One installment per invoice
+				|| round((float) $invoice->total_ttc - (float) $obj->amount, $this->decimals) < 0) {	// An invoice smaller than the installment does not settle it
 				$this->error = $langs->trans('InstallmentsErrorInvoice');
 				return -1;
 			}
 			$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_facture = ".((int) $invoiceid).", status = ".self::STATUS_OPEN." WHERE rowid = ".((int) $lineid);
-		} elseif ($invoiceid < 0) {	// A wrong invoice found by the import, for example: to check again, never invoiced by the job
+			$label = $langs->transnoentities('InstallmentsEventLinked', $day, $invoice->ref);
+		} elseif ($invoiceid == -1) {	// A wrong invoice found by the import, for example: to check again, never invoiced by the job
 			$sql = "UPDATE ".$this->db->prefix()."installments_line SET fk_facture = NULL, status = ".self::STATUS_TOCHECK." WHERE rowid = ".((int) $lineid);
+			$label = $langs->transnoentities('InstallmentsEventUnlinked', $day);
+		} elseif ($invoiceid == -2) {	// Checked: never invoiced, the job or "Invoice now" may invoice it
+			$sql = "UPDATE ".$this->db->prefix()."installments_line SET status = ".self::STATUS_OPEN." WHERE rowid = ".((int) $lineid);	// Invoiced: its invoice kept
+			$label = $langs->transnoentities(empty($obj->fk_facture) ? 'InstallmentsEventReopened' : 'InstallmentsEventChecked', $day);
 		} else {
 			$sql = "UPDATE ".$this->db->prefix()."installments_line SET status = ".self::STATUS_ABANDONED." WHERE rowid = ".((int) $lineid)." AND fk_facture IS NULL";
+			$label = $langs->transnoentities('InstallmentsEventAbandoned', $day, price((float) $obj->amount, 0, $langs, 1, -1, -1, $conf->currency));
 		}
-		if (!$this->db->query($sql)) {
-			$this->error = $this->db->lasterror();
+		$this->db->begin();
+		$event = new ActionComm($this->db);
+		$event->type_code = 'AC_OTH_AUTO';
+		$event->code = 'AC_INSTALLMENTS';
+		$event->label = $label;
+		$event->socid = (int) $source->socid;
+		$event->fk_project = (int) $source->fk_project;
+		$event->elementtype = $source->element;	// ActionComm::create() writes 'order' for an order
+		$event->elementid = $source->id;
+		$event->datep = dol_now();
+		$event->datef = $event->datep;
+		$event->percentage = -1;
+		$event->authorid = $user->id;
+		$event->userownerid = $user->id;
+		if (!$this->db->query($sql) || $event->create($user) < 0) {
+			$this->error = ($event->error ?: $this->db->lasterror());
+			$this->db->rollback();
 			return -1;
+		}
+		$this->db->commit();
+		if ($invoiceid >= 0 && ($source instanceof Commande || (int) $source->status == Propal::STATUS_SIGNED)) {	// Its last installment linked or abandoned: billed, like createInvoice()
+			$sql = "SELECT SUM(CASE WHEN fk_facture IS NULL AND status <> ".self::STATUS_ABANDONED." THEN 1 ELSE 0 END) as nbopen, COUNT(fk_facture) as nbinvoiced";
+			$sql .= " FROM ".$this->db->prefix()."installments_line WHERE fk_schedule = (SELECT fk_schedule FROM ".$this->db->prefix()."installments_line WHERE rowid = ".((int) $lineid).")";
+			$resql = $this->db->query($sql);
+			$obj = ($resql ? $this->db->fetch_object($resql) : null);
+			if ($obj && (int) $obj->nbopen == 0 && (int) $obj->nbinvoiced > 0 && $source->classifyBilled($user) < 0) {
+				$this->errors[] = $source->ref.': '.$source->error;
+			}
 		}
 
 		return 1;
@@ -1451,12 +1813,15 @@ class InstallmentSchedule
 	/**
 	 * Schedules of the module Echeancier (Artis Auxilium) to import: its tables <prefix>echeancier and <prefix>echeance.
 	 * Expected payments of an invoice keep their dates and amounts (what is paid is given again by date); installments of
-	 * proposals and orders invoiced by the old module keep their invoice; the past ones without invoice are to check, never invoiced
-	 * by the job. Lines without amount (payments recorded by the old module) are left out. The old tables are only read.
+	 * proposals and orders invoiced by the old module keep their invoice. For the others, an invoice made by hand is attached only if
+	 * it is linked to the document (same amount within 45 days); another invoice of the customer that may fit is only suggested: the
+	 * installment is to check, the suggestion in its note. Never invoiced by the job, past or future. Lines without amount (payments
+	 * recorded by the old module) are left out, documents of another entity too. The installments follow the payment mode of their
+	 * document. The old tables are only read.
 	 *
 	 * @param	User	$user		User importing
 	 * @param	bool	$dryrun		True to only count
-	 * @return	array{schedules:int,lines:int,tocheck:int,skipped:string[],different:string[]}|int<-1,-1>	Report, -1 if error
+	 * @return	array{schedules:int,lines:int,tocheck:int,matched:string[],suggested:string[],skipped:string[],different:string[]}|int<-1,-1>	Report, -1 if error
 	 */
 	public function import(User $user, $dryrun = true)
 	{
@@ -1467,7 +1832,7 @@ class InstallmentSchedule
 			$this->error = $langs->trans('NotEnoughPermissions');
 			return -1;
 		}
-		$report = array('schedules' => 0, 'lines' => 0, 'tocheck' => 0, 'matched' => array(), 'skipped' => array(), 'different' => array());
+		$report = array('schedules' => 0, 'lines' => 0, 'tocheck' => 0, 'matched' => array(), 'suggested' => array(), 'skipped' => array(), 'different' => array());
 		if (!$this->hasOldTables()) {
 			return $report;
 		}
@@ -1500,6 +1865,10 @@ class InstallmentSchedule
 			$object = new $class($this->db);
 			if ($object->fetch((int) $old->id_element) <= 0) {
 				$report['skipped'][] = $label.': '.$langs->trans('InstallmentsImportNoDocument');
+				continue;
+			}
+			if (!in_array((int) $object->entity, array_map('intval', explode(',', getEntity($element == 'facture' ? 'invoice' : $element))))) {	// The old tables have no entity
+				$report['skipped'][] = $object->ref.': '.$langs->trans('InstallmentsImportOtherEntity');
 				continue;
 			}
 			$existing = $this->fetch($element, (int) $object->id);
@@ -1541,12 +1910,22 @@ class InstallmentSchedule
 				}
 			}
 			usort($pairs, 'installmentsComparePairs');	// The best pairs first: an invoice linked to the document, then the closest date
+			$suggested = array();
 			foreach ($pairs as $pair) {
-				list($i, $candidate) = $pair;
-				if (!$lines[$i]['invoiceid'] && !isset($used[$candidate->id])) {
-					$lines[$i]['invoiceid'] = $candidate->id;
-					$used[$candidate->id] = 1;
-					$report['matched'][] = $object->ref.' '.dol_print_date($lines[$i]['date'], 'day').' '.price($lines[$i]['amount'], 0, $langs, 1, -1, -1, $conf->currency).' → '.$candidate->ref;
+				list($i, $match) = $pair;
+				$id = (int) $match->id;
+				if ($lines[$i]['invoiceid'] || isset($used[$id]) || isset($suggested[$i]) || (!$match->linked && in_array($id, $suggested))) {	// Each installment once, each invoice once
+					continue;
+				}
+				$text = $object->ref.' '.dol_print_date($lines[$i]['date'], 'day').' '.price($lines[$i]['amount'], 0, $langs, 1, -1, -1, $conf->currency).' → '.$match->ref;
+				if ($match->linked) {	// Linked to the document: its invoice
+					$lines[$i]['invoiceid'] = $id;
+					$used[$id] = 1;
+					$report['matched'][] = $text;
+				} else {	// Same customer and amount only: maybe another sale, the user decides
+					$suggested[$i] = $id;
+					$report['suggested'][] = $text.($match->label !== '' ? ' ('.$match->label.')' : '');
+					$lines[$i]['note'] = dol_concatdesc($lines[$i]['note'], self::CHECK_MARK.' '.$langs->transnoentities('InstallmentsImportSuggestion', $match->ref, $match->label));
 				}
 			}
 			foreach ($lines as $i => $line) {	// Never invoiced by the job: past or future, to check by hand
@@ -1573,7 +1952,7 @@ class InstallmentSchedule
 			$ok = (bool) $this->db->query($sql);
 			$id = ($ok ? (int) $this->db->last_insert_id($this->db->prefix()."installments_schedule") : 0);
 			foreach ($lines as $rang => $line) {
-				$ok = $ok && $this->insertLine($id, $rang + 1, $line['date'], $line['amount'], (int) $object->mode_reglement_id, $line['note'], $line['status'], $line['invoiceid'], $line['key']);
+				$ok = $ok && $this->insertLine($id, $rang + 1, $line['date'], $line['amount'], 0, $line['note'], $line['status'], $line['invoiceid'], $line['key']);	// The mode of the document
 			}
 			if (!$ok) {
 				$this->error = $object->ref.': '.$this->db->lasterror();
@@ -1596,17 +1975,18 @@ class InstallmentSchedule
 
 	/**
 	 * Invoices that may have been made by hand for the installments of a proposal or an order: validated standard invoices of its
-	 * customer not linked to an installment yet, the ones linked to the document marked
+	 * customer not linked to an installment yet, the ones linked to the document marked, with the designation of their first line
 	 *
 	 * @param	CommonObject	$object		Proposal or order
-	 * @return	array<int,stdClass>|int<-1,-1>	Invoices (id, ref, date, total, linked), -1 if error
+	 * @return	array<int,stdClass>|int<-1,-1>	Invoices (id, ref, date, total, linked, label), -1 if error
 	 */
 	private function getImportCandidates(CommonObject $object)
 	{
 		'@phan-var-force Propal|Commande $object';
 		$sql = "SELECT f.rowid, f.ref, f.datef, f.total_ttc, (SELECT COUNT(ee.rowid) FROM ".$this->db->prefix()."element_element as ee";
 		$sql .= " WHERE (ee.sourcetype = '".$this->db->escape($object->element)."' AND ee.fk_source = ".((int) $object->id)." AND ee.targettype = 'facture' AND ee.fk_target = f.rowid)";
-		$sql .= " OR (ee.targettype = '".$this->db->escape($object->element)."' AND ee.fk_target = ".((int) $object->id)." AND ee.sourcetype = 'facture' AND ee.fk_source = f.rowid)) as linked";
+		$sql .= " OR (ee.targettype = '".$this->db->escape($object->element)."' AND ee.fk_target = ".((int) $object->id)." AND ee.sourcetype = 'facture' AND ee.fk_source = f.rowid)) as linked,";
+		$sql .= " (SELECT fd.description FROM ".$this->db->prefix()."facturedet as fd WHERE fd.fk_facture = f.rowid AND fd.rowid = (SELECT MIN(fd2.rowid) FROM ".$this->db->prefix()."facturedet as fd2 WHERE fd2.fk_facture = f.rowid)) as label";
 		$sql .= " FROM ".$this->db->prefix()."facture as f";
 		$sql .= " WHERE f.fk_soc = ".((int) $object->socid)." AND f.entity IN (".getEntity('invoice').") AND f.type = ".((int) Facture::TYPE_STANDARD);
 		$sql .= " AND f.fk_statut IN (".((int) Facture::STATUS_VALIDATED).", ".((int) Facture::STATUS_CLOSED).")";
@@ -1619,7 +1999,7 @@ class InstallmentSchedule
 		$candidates = array();
 		while ($obj = $this->db->fetch_object($resql)) {
 			$candidates[] = (object) array('id' => (int) $obj->rowid, 'ref' => (string) $obj->ref, 'date' => (int) $this->db->jdate($obj->datef),
-				'total' => (float) $obj->total_ttc, 'linked' => (int) ($obj->linked > 0));
+				'total' => (float) $obj->total_ttc, 'linked' => (int) ($obj->linked > 0), 'label' => dol_trunc(trim(dol_string_nohtmltag((string) $obj->label)), 40));
 		}
 
 		return $candidates;

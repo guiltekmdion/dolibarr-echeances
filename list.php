@@ -149,7 +149,7 @@ if ($reshook < 0) {
 }
 
 if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_recordpayments' && isset($arrayofmassactions['prerecordpayments']) && !empty($toselect)) {	// Test on permission already done: the mass actions of the user
-	$result = $installments->recordPayments($user, $toselect, GETPOSTDATE('paymentdate', '12:00:00', 'tzserver') ?: dol_now(), GETPOSTINT('paymentmode'), GETPOSTINT('accountid'));
+	$result = $installments->recordPayments($user, $toselect, GETPOSTDATE('paymentdate', '12:00:00', 'tzserver') ?: dol_now(), GETPOSTINT('paymentmode'), GETPOSTINT('accountid'), GETPOST('paymentnum', 'alphanohtml'));
 	if ($result < 0) {
 		setEventMessages($installments->error, $installments->errors, 'errors');
 	} else {
@@ -163,7 +163,7 @@ if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_createinvoices' 
 	$errors = array();
 	$rows = $installments->getInstallments($user, array('type' => 'billing'));
 	foreach (is_array($rows) ? $rows : array() as $row) {
-		if (!in_array($row->id, $toselect) || $row->invoiceid || $row->status == InstallmentSchedule::STATUS_ABANDONED || !$user->hasRight($row->element, 'creer')) {	// Like the tab: the right to modify the proposal or the order
+		if (!in_array($row->id, $toselect) || $row->invoiceid || $row->status != InstallmentSchedule::STATUS_OPEN || !$user->hasRight($row->element, 'creer')) {	// Like the tab: the right to modify the proposal or the order; never one to check
 			continue;
 		}
 		$schedule = $installments->fetch($row->element, $row->fk_element);
@@ -239,6 +239,7 @@ if ($massaction == 'prerecordpayments') {
 	$questions = array(
 		array('type' => 'date', 'name' => 'paymentdate', 'label' => $langs->trans('Date'), 'value' => dol_now()),
 		array('type' => 'select', 'name' => 'paymentmode', 'label' => $langs->trans('PaymentMode'), 'values' => $modes, 'default' => dol_getIdFromCode($db, 'VIR', 'c_paiement', 'code', 'id', 1)),
+		array('type' => 'text', 'name' => 'paymentnum', 'label' => $langs->trans('Numero').' <em>('.$langs->trans('ChequeOrTransferNumber').')</em>'),
 	);
 	if (isModEnabled('bank')) {	// The account of the invoices by default, else the first current account (a cash account takes only cash)
 		$accounts = array();
@@ -305,7 +306,8 @@ foreach ($rows as $row) {
 	print '<td>'.dolPrintLabel($installments->getModeLabel($row->mode, $langs)).'</td>';
 	print '<td>'.$langs->trans($row->billing ? 'InstallmentsToInvoice' : 'InstallmentsToCollect').'</td>';
 	print '<td class="nowraponall">'.dolGetBadge($langs->trans('InstallmentsState'.dol_ucfirst($row->state)), '', $badges[$row->state]);
-	print ($row->invoiceref ? ' <a href="'.DOL_URL_ROOT.'/compta/facture/card.php?facid='.$row->invoiceid.'">'.dolPrintLabel($row->invoiceref).'</a>' : '').'</td>';
+	print ($row->invoiceref ? ' <a href="'.DOL_URL_ROOT.'/compta/facture/card.php?facid='.$row->invoiceid.'">'.dolPrintLabel($row->invoiceref).'</a>' : '');
+	print ($row->invoicedraft ? ' <span class="opacitymedium">('.$langs->trans('Draft').')</span>' : '').'</td>';
 	$parameters = array('row' => $row);
 	$reshook = $hookmanager->executeHooks('printFieldListValue', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook
 	print $hookmanager->resPrint;

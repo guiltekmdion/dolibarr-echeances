@@ -92,7 +92,7 @@ class box_installments extends ModeleBoxes
 		}
 		$installments = new InstallmentSchedule($this->db);
 		$rows = $installments->getInstallments($user, array('date_end' => dol_get_last_day((int) dol_print_date(dol_now(), '%Y'), (int) dol_print_date(dol_now(), '%m')),
-			'states' => array('late', 'todo')));
+			'states' => array('late', 'todo', 'tocheck')));	// To check: never invoiced by the job, the user decides
 		if (!is_array($rows)) {
 			$this->info_box_contents[0][0] = array('td' => '', 'maxlength' => 500, 'text' => dolPrintLabel($installments->error));
 			return;
@@ -101,7 +101,8 @@ class box_installments extends ModeleBoxes
 			$url = dol_buildpath('/installments/schedule.php', 1).'?element='.urlencode($row->element).'&id='.$row->fk_element;
 			$this->info_box_contents[$i][0] = array('td' => 'class="nowraponall"', 'text' => dolPrintLabel($row->ref), 'url' => $url);
 			$this->info_box_contents[$i][1] = array('td' => 'class="tdoverflowmax150"', 'text' => dolPrintLabel($row->socname));
-			$this->info_box_contents[$i][2] = array('td' => 'class="nowraponall center"', 'text' => dol_print_date($row->date, 'day').($row->state == 'late' ? ' '.img_warning($langs->trans('Late')) : ''), 'asis' => 1);
+			$this->info_box_contents[$i][2] = array('td' => 'class="nowraponall center"', 'text' => dol_print_date($row->date, 'day').($row->state == 'late' ? ' '.img_warning($langs->trans('Late')) : '')
+				.($row->state == 'tocheck' ? ' '.img_picto($langs->trans('InstallmentsStateTocheck'), 'help') : ''), 'asis' => 1);
 			$this->info_box_contents[$i][3] = array('td' => 'class="nowraponall right amount"', 'text' => price($row->amount - $row->paid, 0, $langs, 1, -1, -1, $conf->currency));
 			$this->info_box_contents[$i][4] = array('td' => 'class="right"', 'text' => $langs->trans($row->billing ? 'InstallmentsToInvoice' : 'InstallmentsToCollect'));
 		}
