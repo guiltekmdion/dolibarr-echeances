@@ -1,5 +1,10 @@
 # CHANGELOG MODULE INSTALLMENTS FOR [DOLIBARR ERP CRM](https://www.dolibarr.org)
 
+## 1.3.0
+
+- List of the installments like the lists of Dolibarr: a search field under each column (due date from/to, reference, customer, payment mode, type, status), the columns to show chosen by each user, the checkbox column on the side set in Dolibarr.
+- List: the search button no longer hides the installments to invoice when no type is chosen.
+
 ## 1.2.0
 
 - **Cash forecast of a bank account** (Banks > account > Upcoming entries): one row per installment left to pay, at its date and with its rank (`FA2611-0001 (2/3)`), instead of the whole rest of the invoice on one date; the future balance stays the one of Dolibarr (see the README). New hook context `banktreso`, so **after an update from 1.1.0, disable and enable the module again** (seen on Dolibarr 24.0.2 with the files of the zip 1.2.0 copied over 1.1.0: nothing changes before; the jobs with their state, the rights and the schedules are kept after). The disabling done with the files of 1.2.0 in place keeps the constants `INSTALLMENTS_START_DATE` and `INSTALLMENTS_DEBIT_START_DATE` (dates of the first runs of the jobs; 1.1.0 deleted the first one at each disabling, so the job skipped the installments due meanwhile).

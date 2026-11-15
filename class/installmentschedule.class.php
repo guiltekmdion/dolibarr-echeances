@@ -203,7 +203,7 @@ class InstallmentSchedule
 	 * installments of a schedule are read before the filters on dates and states.
 	 *
 	 * @param	User	$user		User reading: one without the right to see all customers gets its own customers
-	 * @param	array{socid?:int,type?:string,search?:string,date_start?:int,date_end?:int,states?:string[],mode?:int}	$filters	Filters (type: payment or billing)
+	 * @param	array{socid?:int,type?:string,ref?:string,company?:string,date_start?:int,date_end?:int,states?:string[],mode?:int}	$filters	Filters (type: payment or billing; ref: of the document or of the invoice created)
 	 * @return	array<int,stdClass>|int<-1,-1>	Installments by date, -1 if error
 	 */
 	public function getInstallments(User $user, array $filters = array())
@@ -228,8 +228,11 @@ class InstallmentSchedule
 		if (!empty($filters['type'])) {
 			$sql .= " AND s.billing = ".($filters['type'] == 'billing' ? 1 : 0);
 		}
-		if (!empty($filters['search'])) {
-			$sql .= natural_search(array('so.nom', 'f.ref', 'p.ref', 'c.ref', 'fi.ref'), $filters['search']);
+		if (!empty($filters['ref'])) {
+			$sql .= natural_search(array('f.ref', 'p.ref', 'c.ref', 'fi.ref'), $filters['ref']);
+		}
+		if (!empty($filters['company'])) {
+			$sql .= natural_search('so.nom', $filters['company']);
 		}
 		if (!$user->hasRight('societe', 'client', 'voir')) {
 			$sql .= " AND EXISTS (SELECT sc.fk_soc FROM ".$this->db->prefix()."societe_commerciaux as sc WHERE sc.fk_soc = so.rowid AND sc.fk_user = ".((int) $user->id).")";

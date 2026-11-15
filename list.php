@@ -87,22 +87,32 @@ $limit = GETPOSTINT('limit') ?: $conf->liste_limit;
 $sortfield = GETPOST('sortfield', 'aZ09comma');
 $sortorder = GETPOST('sortorder', 'aZ09comma') ?: 'ASC';
 $page = GETPOSTISSET('pageplusone') ? (GETPOSTINT('pageplusone') - 1) : GETPOSTINT('page');
-$search = GETPOST('search', 'alphanohtml');
+$contextpage = 'installmentslist';
+$search_ref = GETPOST('search_ref', 'alphanohtml');
+$search_company = GETPOST('search_company', 'alphanohtml');
 $search_state = GETPOSTISSET('search_state') ? GETPOST('search_state', 'aZ09') : 'open';
 $search_type = GETPOST('search_type', 'aZ09');
+$search_type = (in_array($search_type, array('payment', 'billing')) ? $search_type : '');	// The empty choice of Form::selectarray() is -1
 $search_mode = GETPOSTINT('search_mode');
 $search_date_start = GETPOSTDATE('search_date_start', '00:00:00', 'tzserver');
 $search_date_end = GETPOSTDATE('search_date_end', '23:59:59', 'tzserver');
-if (!in_array($sortfield, array('date', 'ref', 'socname', 'amount', 'state'))) {
+$sortfields = array('date', 'ref', 'socname', 'amount', 'remain', 'state');
+if (!in_array($sortfield, $sortfields)) {
 	$sortfield = 'date';
 }
+// Columns of the list, in order, that the user can hide like in the lists of the core
+$arrayfields = array('date' => array('label' => 'InstallmentsDueDate', 'checked' => '1', 'css' => 'center'), 'ref' => array('label' => 'Ref', 'checked' => '1'),
+	'socname' => array('label' => 'Customer', 'checked' => '1'), 'amount' => array('label' => 'AmountTTC', 'checked' => '1', 'css' => 'right'),
+	'remain' => array('label' => 'RemainderToPay', 'checked' => '1', 'css' => 'right'), 'mode' => array('label' => 'PaymentMode', 'checked' => '1'),
+	'type' => array('label' => 'Type', 'checked' => '1'), 'state' => array('label' => 'Status', 'checked' => '1', 'css' => 'center'));
 // Names of the buttons of Form::showFilterButtons(), tested like the lists of the core for all browsers
 $removefilter = (GETPOST('button_removefilter_x', 'alpha') || GETPOST('button_removefilter.x', 'alpha') || GETPOST('button_removefilter', 'alpha'));
 if ($page < 0 || $removefilter || GETPOST('button_search_x', 'alpha') || GETPOST('button_search.x', 'alpha') || GETPOST('button_search', 'alpha')) {
 	$page = 0;
 }
 if ($removefilter) {
-	$search = '';
+	$search_ref = '';
+	$search_company = '';
 	$search_state = 'open';
 	$search_type = '';
 	$search_mode = 0;
@@ -113,7 +123,8 @@ $states = array('open' => array('late', 'todo', 'tocheck'), 'late' => array('lat
 	'invoiced' => array('invoiced'), 'abandoned' => array('abandoned'), 'all' => array());
 $search_state = (isset($states[$search_state]) ? $search_state : 'open');
 
-$param = ($limit != $conf->liste_limit ? '&limit='.((int) $limit) : '').($socid ? '&socid='.$socid : '').($search !== '' ? '&search='.urlencode($search) : '');
+$param = ($limit != $conf->liste_limit ? '&limit='.((int) $limit) : '').($socid ? '&socid='.$socid : '');
+$param .= ($search_ref !== '' ? '&search_ref='.urlencode($search_ref) : '').($search_company !== '' ? '&search_company='.urlencode($search_company) : '');
 $param .= '&search_state='.urlencode($search_state).($search_type ? '&search_type='.urlencode($search_type) : '').($search_mode ? '&search_mode='.$search_mode : '');
 $param .= ($search_date_start ? '&search_date_startday='.dol_print_date($search_date_start, '%d').'&search_date_startmonth='.dol_print_date($search_date_start, '%m').'&search_date_startyear='.dol_print_date($search_date_start, '%Y') : '');
 $param .= ($search_date_end ? '&search_date_endday='.dol_print_date($search_date_end, '%d').'&search_date_endmonth='.dol_print_date($search_date_end, '%m').'&search_date_endyear='.dol_print_date($search_date_end, '%Y') : '');
@@ -146,6 +157,9 @@ $parameters = array('arrayofselected' => $toselect);
 $reshook = $hookmanager->executeHooks('doActions', $parameters, $installments, $action); // Note that $action and $object may have been modified by some hooks
 if ($reshook < 0) {
 	setEventMessages($hookmanager->error, $hookmanager->errors, 'errors');
+}
+if (empty($reshook)) {	// Columns chosen by the user
+	include DOL_DOCUMENT_ROOT.'/core/actions_changeselectedfields.inc.php';
 }
 
 if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_recordpayments' && isset($arrayofmassactions['prerecordpayments']) && !empty($toselect)) {	// Test on permission already done: the mass actions of the user
@@ -188,7 +202,7 @@ if (empty($reshook) && $confirm == 'yes' && $action == 'confirm_createinvoices' 
  */
 
 $form = new Form($db);
-$filters = array('socid' => $socid, 'type' => $search_type, 'search' => $search, 'date_start' => $search_date_start, 'date_end' => $search_date_end,
+$filters = array('socid' => $socid, 'type' => $search_type, 'ref' => $search_ref, 'company' => $search_company, 'date_start' => $search_date_start, 'date_end' => $search_date_end,
 	'states' => $states[$search_state], 'mode' => $search_mode);
 $rows = $installments->getInstallments($user, $filters);
 if (!is_array($rows)) {
@@ -222,6 +236,7 @@ if ($socid > 0) {	// Tab of the thirdparty
 
 print '<form method="POST" id="searchFormList" action="'.$_SERVER['PHP_SELF'].'">';
 print '<input type="hidden" name="token" value="'.newToken().'">';
+print '<input type="hidden" name="formfilteraction" id="formfilteraction" value="list">';
 print '<input type="hidden" name="socid" value="'.((int) $socid).'">';
 print '<input type="hidden" name="sortfield" value="'.dolPrintHTMLForAttribute($sortfield).'">';
 print '<input type="hidden" name="sortorder" value="'.dolPrintHTMLForAttribute($sortorder).'">';
@@ -261,33 +276,46 @@ $statelabels = array();
 foreach (array_keys($states) as $state) {
 	$statelabels[$state] = $langs->trans('InstallmentsState'.dol_ucfirst($state));
 }
-$moreforfilter = '<div class="divsearchfield">'.$langs->trans('Search').': <input type="text" class="maxwidth150" name="search" value="'.dolPrintHTMLForAttribute($search).'"></div>';
-$moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Status').': '.$form->selectarray('search_state', $statelabels, $search_state, 0, 0, 0, '', 0, 0, 0, '', 'maxwidth150').'</div>';
-$moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Type').': '.$form->selectarray('search_type', array('payment' => $langs->trans('InstallmentsToCollect'), 'billing' => $langs->trans('InstallmentsToInvoice')), $search_type, 1, 0, 0, '', 0, 0, 0, '', 'maxwidth150').'</div>';
-$moreforfilter .= '<div class="divsearchfield">'.$langs->trans('PaymentMode').': '.$form->select_types_paiements($search_mode, 'search_mode', 'CRDT', 0, 1, 0, 0, 1, 'maxwidth150', 1).'</div>';
-$moreforfilter .= '<div class="divsearchfield">'.$langs->trans('Date').': '.$form->selectDate($search_date_start ?: -1, 'search_date_start', 0, 0, 1, '', 1, 0).' - '.$form->selectDate($search_date_end ?: -1, 'search_date_end', 0, 0, 1, '', 1, 0).'</div>';
-print '<div class="liste_titre liste_titre_bydiv centpercent">'.$moreforfilter.'</div>';
+$selectedfields = $form->multiSelectArrayWithCheckbox('selectedfields', $arrayfields, $contextpage, $conf->main_checkbox_left_column);	// Also applies the choice of the user to $arrayfields
+$selectedfields .= ($massactionbutton ? $form->showCheckAddButtons('checkforselect', 1) : '');
+$left = $conf->main_checkbox_left_column;
+$searchfields = array(
+	'date' => '<div class="nowrap">'.$form->selectDate($search_date_start ?: -1, 'search_date_start', 0, 0, 1, '', 1, 0, 0, '', '', '', '', 1, '', $langs->trans('From'))
+		.'</div><div class="nowrap">'.$form->selectDate($search_date_end ?: -1, 'search_date_end', 0, 0, 1, '', 1, 0, 0, '', '', '', '', 1, '', $langs->trans('to')).'</div>',
+	'ref' => '<input type="text" class="flat maxwidth75" name="search_ref" value="'.dolPrintHTMLForAttribute($search_ref).'">',
+	'socname' => '<input type="text" class="flat maxwidth100" name="search_company" value="'.dolPrintHTMLForAttribute($search_company).'">',
+	'mode' => $form->select_types_paiements($search_mode, 'search_mode', 'CRDT', 0, 1, 0, 0, 1, 'maxwidth100', 1),
+	'type' => $form->selectarray('search_type', array('payment' => $langs->trans('InstallmentsToCollect'), 'billing' => $langs->trans('InstallmentsToInvoice')), $search_type, 1, 0, 0, '', 0, 0, 0, '', 'maxwidth100'),
+	'state' => $form->selectarray('search_state', $statelabels, $search_state, 0, 0, 0, '', 0, 0, 0, '', 'maxwidth100'),
+);
 
 print '<div class="div-table-responsive">';
-print '<table class="tagtable nobottomiftotal liste">';
-print '<tr class="liste_titre_filter"><td class="liste_titre" colspan="8"></td>';
-$parameters = array();
+print '<table class="tagtable nobottomiftotal noborder liste">';
+print '<tr class="liste_titre_filter">'.($left ? '<td class="liste_titre center maxwidthsearch">'.$form->showFilterButtons('left').'</td>' : '');
+foreach ($arrayfields as $key => $field) {
+	if (!empty($field['checked'])) {
+		print '<td class="liste_titre'.(empty($field['css']) ? '' : ' '.$field['css']).'">'.(isset($searchfields[$key]) ? $searchfields[$key] : '').'</td>';
+	}
+}
+$parameters = array('arrayfields' => $arrayfields);
 $reshook = $hookmanager->executeHooks('printFieldListOption', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook
 print $hookmanager->resPrint;
-print '<td class="liste_titre center maxwidthsearch">'.$form->showFilterButtons().'</td></tr>';
+print ($left ? '' : '<td class="liste_titre center maxwidthsearch">'.$form->showFilterButtons().'</td>').'</tr>';
 print '<tr class="liste_titre">';
-print_liste_field_titre('InstallmentsDueDate', $_SERVER['PHP_SELF'], 'date', '', $param, '', $sortfield, $sortorder);
-print_liste_field_titre('Ref', $_SERVER['PHP_SELF'], 'ref', '', $param, '', $sortfield, $sortorder);
-print_liste_field_titre('Customer', $_SERVER['PHP_SELF'], 'socname', '', $param, '', $sortfield, $sortorder);
-print_liste_field_titre('AmountTTC', $_SERVER['PHP_SELF'], 'amount', '', $param, '', $sortfield, $sortorder, 'right ');
-print_liste_field_titre('RemainderToPay', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder, 'right ');
-print_liste_field_titre('PaymentMode', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder);
-print_liste_field_titre('Type', $_SERVER['PHP_SELF'], '', '', $param, '', $sortfield, $sortorder);
-print_liste_field_titre('Status', $_SERVER['PHP_SELF'], 'state', '', $param, '', $sortfield, $sortorder);
-$parameters = array('param' => $param, 'sortfield' => $sortfield, 'sortorder' => $sortorder);
+if ($left) {
+	print_liste_field_titre($selectedfields, $_SERVER['PHP_SELF'], '', '', '', '', $sortfield, $sortorder, 'center maxwidthsearch ');
+}
+foreach ($arrayfields as $key => $field) {
+	if (!empty($field['checked'])) {
+		print_liste_field_titre($field['label'], $_SERVER['PHP_SELF'], (in_array($key, $sortfields) ? $key : ''), '', $param, '', $sortfield, $sortorder, (empty($field['css']) ? '' : $field['css'].' '));
+	}
+}
+$parameters = array('arrayfields' => $arrayfields, 'param' => $param, 'sortfield' => $sortfield, 'sortorder' => $sortorder);
 $reshook = $hookmanager->executeHooks('printFieldListTitle', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook
 print $hookmanager->resPrint;
-print_liste_field_titre($massactionbutton ? $form->showCheckAddButtons('checkforselect', 1) : '', $_SERVER['PHP_SELF'], '', '', '', '', $sortfield, $sortorder, 'center maxwidthsearch ');
+if (!$left) {
+	print_liste_field_titre($selectedfields, $_SERVER['PHP_SELF'], '', '', '', '', $sortfield, $sortorder, 'center maxwidthsearch ');
+}
 print '</tr>';
 
 $badges = array('paid' => 'status4', 'invoiced' => 'status4', 'late' => 'status8', 'todo' => 'status1', 'tocheck' => 'status3', 'abandoned' => 'status9');
@@ -297,27 +325,44 @@ foreach ($rows as $row) {
 	$societe->name = $row->socname;
 	$societe->client = 1;
 	$url = dol_buildpath('/installments/schedule.php', 1).'?element='.urlencode($row->element).'&id='.$row->fk_element;
-	print '<tr class="oddeven">';
-	print '<td class="nowraponall">'.dol_print_date($row->date, 'day').'</td>';
-	print '<td class="nowraponall"><a href="'.$url.'">'.img_picto('', ($row->element == 'facture' ? 'bill' : ($row->element == 'propal' ? 'propal' : 'order')), 'class="pictofixedwidth"').dolPrintLabel($row->ref).'</a></td>';
-	print '<td class="tdoverflowmax200">'.$societe->getNomUrl(1, 'customer').'</td>';
-	print '<td class="right nowraponall amount">'.price($row->amount, 0, $langs, 1, -1, -1, $conf->currency).'</td>';
-	print '<td class="right nowraponall amount">'.($row->state == 'abandoned' ? '' : price($row->remain, 0, $langs, 1, -1, -1, $conf->currency)).'</td>';
-	print '<td>'.dolPrintLabel($installments->getModeLabel($row->mode, $langs)).'</td>';
-	print '<td>'.$langs->trans($row->billing ? 'InstallmentsToInvoice' : 'InstallmentsToCollect').'</td>';
-	print '<td class="nowraponall">'.dolGetBadge($langs->trans('InstallmentsState'.dol_ucfirst($row->state)), '', $badges[$row->state]);
-	print ($row->invoiceref ? ' <a href="'.DOL_URL_ROOT.'/compta/facture/card.php?facid='.$row->invoiceid.'">'.dolPrintLabel($row->invoiceref).'</a>' : '');
-	print ($row->invoicedraft ? ' <span class="opacitymedium">('.$langs->trans('Draft').')</span>' : '').'</td>';
-	$parameters = array('row' => $row);
+	$cells = array(
+		'date' => '<td class="center nowraponall">'.dol_print_date($row->date, 'day').'</td>',
+		'ref' => '<td class="nowraponall"><a href="'.$url.'">'.img_picto('', ($row->element == 'facture' ? 'bill' : ($row->element == 'propal' ? 'propal' : 'order')), 'class="pictofixedwidth"').dolPrintLabel($row->ref).'</a></td>',
+		'socname' => '<td class="tdoverflowmax200">'.$societe->getNomUrl(1, 'customer').'</td>',
+		'amount' => '<td class="right nowraponall amount">'.price($row->amount, 0, $langs, 1, -1, -1, $conf->currency).'</td>',
+		'remain' => '<td class="right nowraponall amount">'.($row->state == 'abandoned' ? '' : price($row->remain, 0, $langs, 1, -1, -1, $conf->currency)).'</td>',
+		'mode' => '<td>'.dolPrintLabel($installments->getModeLabel($row->mode, $langs)).'</td>',
+		'type' => '<td>'.$langs->trans($row->billing ? 'InstallmentsToInvoice' : 'InstallmentsToCollect').'</td>',
+		'state' => '<td class="center nowraponall">'.dolGetBadge($langs->trans('InstallmentsState'.dol_ucfirst($row->state)), '', $badges[$row->state])
+			.($row->invoiceref ? ' <a href="'.DOL_URL_ROOT.'/compta/facture/card.php?facid='.$row->invoiceid.'">'.dolPrintLabel($row->invoiceref).'</a>' : '')
+			.($row->invoicedraft ? ' <span class="opacitymedium">('.$langs->trans('Draft').')</span>' : '').'</td>',
+	);
+	$checkbox = '<td class="nowrap center"><input id="cb'.$row->id.'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$row->id.'"'.(in_array($row->id, $toselect) ? ' checked' : '').'></td>';
+	print '<tr class="oddeven">'.($left ? $checkbox : '');
+	foreach ($arrayfields as $key => $field) {
+		print (empty($field['checked']) ? '' : $cells[$key]);
+	}
+	$parameters = array('row' => $row, 'arrayfields' => $arrayfields);
 	$reshook = $hookmanager->executeHooks('printFieldListValue', $parameters, $installments, $action); // Note that $action and $object may have been modified by hook
 	print $hookmanager->resPrint;
-	print '<td class="nowrap center"><input id="cb'.$row->id.'" class="flat checkforselect" type="checkbox" name="toselect[]" value="'.$row->id.'"'.(in_array($row->id, $toselect) ? ' checked' : '').'></td>';
-	print '</tr>';
+	print ($left ? '' : $checkbox).'</tr>';
 }
 if ($num == 0) {
-	print '<tr><td colspan="9"><span class="opacitymedium">'.$langs->trans('NoRecordFound').'</span></td></tr>';
-} else {
-	print '<tr class="liste_total"><td colspan="4">'.$langs->trans('Total').'</td><td class="right nowraponall">'.price($total, 0, $langs, 1, -1, -1, $conf->currency).'</td><td colspan="4"></td></tr>';
+	print '<tr><td colspan="'.(1 + count(array_filter(array_column($arrayfields, 'checked')))).'"><span class="opacitymedium">'.$langs->trans('NoRecordFound').'</span></td></tr>';
+} else {	// The label in the first cell without a total, like the lists of the core
+	$label = $langs->trans('Total');
+	print '<tr class="liste_total">';
+	if ($left) {
+		print '<td>'.$label.'</td>';
+		$label = '';
+	}
+	foreach ($arrayfields as $key => $field) {
+		if (!empty($field['checked'])) {
+			print ($key == 'remain' ? '<td class="right nowraponall">'.price($total, 0, $langs, 1, -1, -1, $conf->currency).'</td>' : '<td>'.$label.'</td>');
+			$label = '';
+		}
+	}
+	print ($left ? '' : '<td></td>').'</tr>';
 }
 print '</table>';
 print '</div>';

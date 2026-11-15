@@ -234,7 +234,7 @@ class InstallmentsTest extends CommonClassTest
 
 		$module = new modInstallments($db);
 
-		$this->assertSame(array('1.2.0', 231255, 'Guiltek', array(8, 1), 1, 1), array($module->version, $module->numero, $module->editor_name, $module->phpmin, $module->module_parts['triggers'], $module->module_parts['substitutions']));
+		$this->assertSame(array('1.3.0', 231255, 'Guiltek', array(8, 1), 1, 1), array($module->version, $module->numero, $module->editor_name, $module->phpmin, $module->module_parts['triggers'], $module->module_parts['substitutions']));
 		$this->assertSame(array('23125501', '23125502'), array($module->rights[0][0], $module->rights[1][0]), 'Not the rights 231251 and 231252 of the module Reminders');
 		$this->assertSame(array(0, 0), array($module->cronjobs[0]['status'], $module->cronjobs[1]['status']));
 		$this->assertSame(array('INSTALLMENTS_START_DATE', 0, 'INSTALLMENTS_DEBIT_START_DATE', 0), array($module->const[0][0], $module->const[0][6], $module->const[1][0], $module->const[1][6]), 'An update does not stop the jobs');
@@ -819,6 +819,28 @@ class InstallmentsTest extends CommonClassTest
 		$this->assertCount(2, $installments->getInstallments($user, array('socid' => $socid, 'states' => array('late', 'todo'), 'type' => 'payment')));
 		$this->assertCount(1, $installments->getInstallments($user, array('socid' => $socid, 'type' => 'billing')));
 		$this->assertCount(2, $installments->getInstallments($user, array('socid' => $socid, 'date_start' => dol_get_first_hour(dol_now()))));
+	}
+
+	/**
+	 * Search fields of the columns of the list: reference of the document, name of the customer, each only on its own column
+	 *
+	 * @return void
+	 */
+	public function testInstallmentsSearchColumns()
+	{
+		$db = $this->savdb;
+		$user = $this->savuser;
+		$installments = new InstallmentSchedule($db);
+		$invoice = $this->createInvoice($this->createCustomer('searchfirm'), array(array(100, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $invoice, array(array('date' => dol_time_plus_duree(dol_now(), 10, 'd'), 'amount' => 120.0, 'mode' => 0, 'note' => ''))), $installments->error);
+		$order = $this->createOrder($this->createCustomer('searchother'), array(array(100, 20)));
+		$this->assertGreaterThan(0, $installments->save($user, $order, array(array('date' => dol_time_plus_duree(dol_now(), 5, 'd'), 'amount' => 120.0, 'mode' => 0, 'note' => '')), 1), $installments->error);
+
+		$this->assertSame(array($invoice->ref), array_column($installments->getInstallments($user, array('company' => 'PSTEST searchfirm')), 'ref'));
+		$this->assertSame(array($order->ref), array_column($installments->getInstallments($user, array('ref' => $order->ref)), 'ref'));
+		$this->assertSame(array($invoice->ref), array_column($installments->getInstallments($user, array('ref' => $invoice->ref)), 'ref'));
+		$this->assertCount(0, $installments->getInstallments($user, array('ref' => 'PSTEST searchfirm')), 'The name of the customer is not a reference');
+		$this->assertCount(0, $installments->getInstallments($user, array('company' => $order->ref)), 'A reference is not the name of the customer');
 	}
 
 	/**
